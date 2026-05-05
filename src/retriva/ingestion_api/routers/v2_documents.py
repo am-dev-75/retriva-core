@@ -34,14 +34,15 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Response, UploadFile, status
 
 from retriva.config import settings
 from retriva.domain.models import CanonicalRecord, ParsedDocument
-from retriva.indexing.qdrant_store import get_client, upsert_chunks
+from retriva.indexing.qdrant_store import get_client, upsert_chunks, delete_chunks_by_source_path, delete_chunks_by_metadata, COLLECTION_NAME
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 from retriva.ingestion.normalize import normalize_text
 from retriva.ingestion_api.job_manager import CancellationError, JobManager
-from retriva.ingestion_api.schemas import UserMetadataValidationError, validate_user_metadata
+from retriva.ingestion_api.schemas import UserMetadataValidationError, validate_user_metadata, DeleteMetadataRequest
 from retriva.ingestion_api.schemas_v2 import (
     DocumentIngestRequestV2,
     IngestResponseV2,
@@ -424,3 +425,61 @@ async def upload_document_v2(
         message=f"File '{file.filename}' accepted for processing",
         job_id=job.id,
     )
+
+
+@router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document_v2(doc_id: str):
+    """
+    Delete a document and all its chunks from the vector store (v2).
+    
+    This endpoint is idempotent. If the document does not exist, it logs 
+    an informative message and returns 204 No Content.
+    """
+    logger.debug(f"Received request to delete document (v2): {doc_id}")
+    client = get_client()
+    
+    try:
+        # Check if any chunks exist for this source_path
+        hits, _ = client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=Filter(
+                must=[
+                    FieldCondition(
+                        key="source_path",
+                        match=MatchValue(value=doc_id),
+                    )
+                ]
+            ),
+            limit=1,
+            with_payload=False,
+            with_vectors=False
+        )
+        
+        if not hits:
+            logger.info(f"document not present; skipping doc_id={doc_id} (v2)")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+        delete_chunks_by_source_path(client, doc_id)
+        logger.info(f"retriva_deleted doc_id={doc_id} (v2)")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        
+    except Exception as e:
+        logger.error(f"Error during document deletion (v2) for {doc_id}: {e}")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/metadata/filter", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_documents_by_metadata_v2(request: DeleteMetadataRequest):
+    """
+    Delete all chunks from the vector store that match the given user_metadata filter (v2).
+    """
+    logger.debug(f"Received request to delete chunks by metadata (v2): {request.user_metadata_filter}")
+    client = get_client()
+    
+    try:
+        delete_chunks_by_metadata(client, request.user_metadata_filter)
+        logger.info(f"retriva_deleted chunks by metadata (v2): {request.user_metadata_filter}")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as e:
+        logger.error(f"Error during chunk deletion by metadata (v2) {request.user_metadata_filter}: {e}")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)

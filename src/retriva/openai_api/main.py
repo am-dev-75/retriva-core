@@ -52,6 +52,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.get("/")
+async def root():
+    """Returns basic API information."""
+    return {
+        "app": "Retriva OpenAI-Compatible API",
+        "version": VERSION,
+        "api_v1": "/v1",
+        "status": "ready"
+    }
+
 # Allow cross-origin requests — Open WebUI may run on a different host/port.
 app.add_middleware(
     CORSMiddleware,
