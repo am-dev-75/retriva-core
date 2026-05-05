@@ -215,7 +215,7 @@ Access web UI at http://localhost:6333/dashboard
 (retriva-venv) $ PYTHONPATH=src python -m retriva.ingestion_api
 ```
 
-* Build the knowledge base from *your* documents with the CLI. For instance:
+* Build the knowledge base from **your** documents with the CLI. For instance:
 
 ```bash
 (retriva-venv) $ PYTHONPATH=src python -m retriva.cli ingest --path ~/my_documents

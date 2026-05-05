@@ -110,3 +110,45 @@ class JobResponseV2(BaseModel):
     created_at: str
     updated_at: str
     error: Optional[str] = None
+
+# ---------------------------------------------------------------------------
+# Artifact schemas
+# ---------------------------------------------------------------------------
+
+class ArtifactRequestV2(BaseModel):
+    """Request to generate a new artifact."""
+
+    artifact_type: str = Field(..., description="Type of artifact, e.g. 'document_list'.")
+    format: str = Field(..., description="Target format, e.g. 'pdf', 'markdown'.")
+    parameters: Optional[Dict[str, str]] = Field(
+        default_factory=dict,
+        description="Format-specific generation parameters.",
+    )
+    user_metadata: Optional[Dict[str, str]] = Field(
+        None,
+        description="Optional user-provided metadata to associate with the artifact.",
+    )
+
+    @field_validator("user_metadata")
+    @classmethod
+    def _validate_metadata(
+        cls, v: Optional[Dict[str, str]],
+    ) -> Optional[Dict[str, str]]:
+        return validate_user_metadata(v)
+
+
+class ArtifactResponseV2(BaseModel):
+    """Acknowledgement returned when an artifact job is accepted."""
+
+    status: str = Field(..., description="Result status, e.g. 'accepted'.")
+    message: str = Field(..., description="Human-readable summary.")
+    job_id: str = Field(..., description="Unique job identifier for status polling.")
+    artifact_id: str = Field(..., description="Unique artifact identifier for download.")
+
+
+class ArtifactCapabilitiesResponseV2(BaseModel):
+    """Response containing supported artifact types and formats."""
+
+    supported_formats: List[str]
+    supported_types: List[str]
+    templates: List[str] = Field(default_factory=list)

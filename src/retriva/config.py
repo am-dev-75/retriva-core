@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     # Storage and Persistence
     storage_path: str = str((Path(__file__).resolve().parent.parent.parent / "storage").resolve())
     kb_mapping_db: str = str((Path(__file__).resolve().parent.parent.parent / "storage" / "kb_mappings.db").resolve())
+    artifacts_path: str = str((Path(__file__).resolve().parent.parent.parent / "storage" / "artifacts").resolve())
     
     # Retriva constitution
     retriva_constitution: str = str((Path(__file__).resolve().parent.parent.parent / ".agent" / "rules" / "retriva-constitution.md").resolve())
