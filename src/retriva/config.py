@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # Chat model
     chat_base_url: str = "https://openrouter.ai/api/v1"
     chat_model: str = "qwen/qwen3.5-27b"
+    # chat_model: str = "minimax/minimax-m2.7"
     chat_openai_api_key: str = ""
     chat_temperature: float = 0.0
     chat_top_p: float = 0.9
@@ -88,6 +89,7 @@ class Settings(BaseSettings):
     ocrmypdf_deskew: bool = True
     ocrmypdf_rotate_pages: bool = True
     v2_primary_parser: str = "docling"
+    accelerator_device: str = "cpu"  # cpu, cuda, mps, auto
 
     # OpenAI-compatible API (for Open WebUI)
     openai_api_port: int = 8001
