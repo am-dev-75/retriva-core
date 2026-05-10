@@ -42,9 +42,15 @@ def main():
     print(f"  Chat temperature:     {s.chat_temperature}")
     print(f"  Chat top_p:           {s.chat_top_p}")
     print(f"  Retriever top_k:      {s.retriever_top_k}")
+    print(f"  Reranking enabled:    {s.enable_retrieval_reranking}")
+    if s.enable_retrieval_reranking:
+        print(f"  Rerank model:         {s.retrieval_rerank_model}")
     print(f"  Qdrant URL:           {s.qdrant_url}")
+    print(f"  Qdrant Collection:    {s.qdrant_collection_name}")
     print(f"  Embedding model:      {s.embedding_model}")
     print(f"  Embedding dimension:  {s.embedding_dimension}")
+    print(f"  Storage path:         {s.storage_path}")
+    print(f"  Artifacts path:       {s.artifacts_path}")
     print()
     print(f"Starting OpenAI-compatible API on {args.host}:{args.port}...")
     uvicorn.run(
