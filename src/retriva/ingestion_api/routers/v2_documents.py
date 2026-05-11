@@ -38,7 +38,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Respo
 
 from retriva.config import settings
 from retriva.domain.models import CanonicalRecord, ParsedDocument
-from retriva.indexing.qdrant_store import get_client, upsert_chunks, delete_chunks_by_source_path, delete_chunks_by_metadata, COLLECTION_NAME
+from retriva.indexing.qdrant_store import get_client, upsert_chunks, delete_chunks_by_source_path, delete_chunks_by_metadata, COLLECTION_NAME, list_documents as list_documents_store, count_documents as count_documents_store
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from retriva.ingestion.normalize import normalize_text
 from retriva.ingestion_api.job_manager import CancellationError, JobManager
@@ -47,6 +47,9 @@ from retriva.ingestion_api.schemas_v2 import (
     DocumentIngestRequestV2,
     IngestResponseV2,
     JobStage,
+    DocumentListResponse,
+    DocumentCountResponse,
+    DocumentResponse,
 )
 from retriva.logger import get_logger
 from retriva.registry import CapabilityRegistry
@@ -354,6 +357,97 @@ def process_document_v2(
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+from fastapi import Query, Request
+
+def _parse_and_validate_metadata(user_metadata_filter: Optional[str], request: Request) -> Optional[dict]:
+    parsed = {}
+    if user_metadata_filter:
+        try:
+            parsed = _json.loads(user_metadata_filter)
+        except _json.JSONDecodeError:
+            raise HTTPException(
+                status_code=422,
+                detail=[{"field": "user_metadata_filter", "msg": "Invalid JSON"}],
+            )
+            
+    for key, value in request.query_params.items():
+        if key.startswith("metadata."):
+            metadata_key = key[len("metadata."):]
+            parsed[metadata_key] = value
+            
+    if not parsed:
+        return None
+        
+    try:
+        validate_user_metadata(parsed)
+    except UserMetadataValidationError as e:
+        raise HTTPException(status_code=422, detail=e.details)
+        
+    return parsed
+
+@router.get("", response_model=DocumentListResponse)
+async def list_documents(
+    request: Request,
+    user_metadata_filter: Optional[str] = Query(None, description="JSON-encoded user metadata filter")
+):
+    """List unique documents from the vector store, optionally filtered by user_metadata."""
+    parsed_filter = _parse_and_validate_metadata(user_metadata_filter, request)
+    
+    try:
+        client = get_client()
+        docs = list_documents_store(client, metadata_filter=parsed_filter)
+        
+        return DocumentListResponse(
+            documents=[DocumentResponse(**d) for d in docs],
+            total=len(docs)
+        )
+    except Exception as e:
+        logger.error(f"Error listing documents: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/count", response_model=DocumentCountResponse)
+async def count_documents(
+    request: Request,
+    user_metadata_filter: Optional[str] = Query(None, description="JSON-encoded user metadata filter")
+):
+    """Count unique documents in the vector store, optionally filtered by user_metadata."""
+    parsed_filter = _parse_and_validate_metadata(user_metadata_filter, request)
+    
+    try:
+        client = get_client()
+        count = count_documents_store(client, metadata_filter=parsed_filter)
+        return DocumentCountResponse(count=count)
+    except Exception as e:
+        logger.error(f"Error counting documents: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/{doc_id}", response_model=DocumentResponse)
+async def get_document(doc_id: str):
+    """Get a specific document by ID."""
+    try:
+        client = get_client()
+        docs = list_documents_store(client, doc_id=doc_id)
+        if not docs:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return DocumentResponse(**docs[0])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting document {doc_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
 
 @router.post(
     "",

@@ -152,3 +152,47 @@ class ArtifactCapabilitiesResponseV2(BaseModel):
     supported_formats: List[str]
     supported_types: List[str]
     templates: List[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Document and Retrieval schemas
+# ---------------------------------------------------------------------------
+
+from typing import Any
+
+class DocumentResponse(BaseModel):
+    """Document representation retrieved from vector store."""
+    doc_id: str
+    source_path: str
+    page_title: str
+    user_metadata: Optional[Dict[str, str]] = None
+
+class DocumentListResponse(BaseModel):
+    """Response containing a list of documents."""
+    documents: List[DocumentResponse]
+    total: int
+
+class DocumentCountResponse(BaseModel):
+    """Response containing the count of documents."""
+    count: int
+
+class MetadataSchemaResponse(BaseModel):
+    """Response containing available metadata keys."""
+    keys: List[str]
+
+class MetadataValuesResponse(BaseModel):
+    """Response containing available values for a metadata key."""
+    key: str
+    values: List[str]
+
+class RetrievalRequest(BaseModel):
+    """Request to retrieve chunks based on vector search and metadata filter."""
+    query: str = Field(..., description="Query text to embed and search.")
+    top_k: int = Field(5, description="Number of top chunks to return.")
+    user_metadata_filter: Optional[Dict[str, str]] = Field(
+        None, description="Optional metadata filter to apply before ranking."
+    )
+
+class RetrievalResponse(BaseModel):
+    """Response containing retrieved chunks."""
+    chunks: List[Dict[str, Any]]
