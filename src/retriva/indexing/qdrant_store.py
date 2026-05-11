@@ -70,6 +70,7 @@ def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optio
     if not chunks:
         return
         
+    init_collection(client)
     logger.info(f"Indexing {len(chunks)} chunks in batches of {settings.indexing_batch_size}...")
     
     for i in range(0, len(chunks), settings.indexing_batch_size):
