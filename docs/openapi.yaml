@@ -2,12 +2,12 @@ openapi: 3.1.0
 info:
   title: Retriva API
   description: |
-    Retriva provides a comprehensive set of APIs for document ingestion, retrieval, and integration with Open WebUI.
-    
+    Retriva provides a comprehensive set of APIs for document ingestion, retrieval, and integration with Retriva WebUI.
+
     The system consists of three main components:
     * **Retriva Core (Ingestion)**: Handles data processing, chunking, and indexing.
     * **Retriva Core (OpenAI API)**: Provides OpenAI-compatible endpoints for RAG.
-    * **Open WebUI Adapter**: Orchestrates synchronization and intent classification.
+    * **Retriva Gateway**: Sits between Retriva WebUI and Retriva Core.
   version: 1.0.0
   contact:
     name: Andrea Marson
@@ -25,32 +25,32 @@ servers:
     description: Retriva Gateway API
 
 tags:
-  - name: Ingestion
+  - name: Ingestion v1 (legacy)
     description: Document and data processing pipeline
   - name: Chat
     description: OpenAI-compatible retrieval and completion
-  - name: Adapter
-    description: Integration and synchronization with Open WebUI
-  - name: Jobs
+  - name: Gateway
+    description: Integration and synchronization with Retriva WebUI
+  - name: Jobs v1 (legacy)
     description: Ingestion job management
-  - name: v2-Documents
+  - name: Ingestion v2
     description: Generic multi-tool document ingestion (v2)
-  - name: v2-Jobs
+  - name: Jobs v2
     description: Extended ingestion job management (v2)
-  - name: Artifacts
+  - name: Artifacts v2
     description: Document generation and rendering (v2)
-  - name: v2-Metadata
+  - name: Metadata v2
     description: Metadata schema and values discovery (v2)
-  - name: v2-Retrieval
+  - name: Retrieval v2
     description: Vector and metadata-filtered retrieval (v2)
   - name: Internal
     description: Debugging and observability endpoints
 
 paths:
-  # --- Ingestion API ---
+  # --- Ingestion v1 (legacy) API ---
   /api/v1/ingest/text:
     post:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Ingest plain text
       operationId: ingestText
       requestBody:
@@ -58,18 +58,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TextIngestRequest'
+              $ref: "#/components/schemas/TextIngestRequest"
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   /api/v1/ingest/HTML:
     post:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Ingest HTML content
       operationId: ingestHtml
       requestBody:
@@ -77,18 +77,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/HtmlIngestRequest'
+              $ref: "#/components/schemas/HtmlIngestRequest"
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   /api/v1/ingest/pdf:
     post:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Ingest PDF page
       operationId: ingestPdf
       requestBody:
@@ -96,18 +96,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PdfIngestRequest'
+              $ref: "#/components/schemas/PdfIngestRequest"
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   /api/v1/ingest/markdown:
     post:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Ingest Markdown sections
       operationId: ingestMarkdown
       requestBody:
@@ -115,18 +115,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MarkdownIngestRequest'
+              $ref: "#/components/schemas/MarkdownIngestRequest"
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   /api/v1/ingest/image:
     post:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Ingest local image file
       operationId: ingestImage
       requestBody:
@@ -134,18 +134,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ImageIngestRequest'
+              $ref: "#/components/schemas/ImageIngestRequest"
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   /api/v1/ingest/mediawiki:
     post:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Ingest MediaWiki export page
       operationId: ingestMediaWiki
       requestBody:
@@ -153,18 +153,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MediaWikiIngestRequest'
+              $ref: "#/components/schemas/MediaWikiIngestRequest"
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   /api/v1/ingest/chunks:
     post:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Ingest raw chunks
       operationId: ingestChunks
       requestBody:
@@ -172,31 +172,31 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ChunkIngestRequest'
+              $ref: "#/components/schemas/ChunkIngestRequest"
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   /api/v1/ingest/collection:
     delete:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Clear entire vector collection
       operationId: clearCollection
       responses:
-        '200':
+        "200":
           description: Collection cleared
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   /api/v1/documents/{doc_id}:
     delete:
-      tags: [Ingestion]
+      tags: [Ingestion v1]
       summary: Delete a document and its chunks
       operationId: deleteDocument
       parameters:
@@ -206,28 +206,28 @@ paths:
           schema:
             type: string
       responses:
-        '204':
+        "204":
           description: Document deleted or not found (idempotent)
 
   # --- Jobs API ---
   /api/v1/jobs:
     get:
-      tags: [Jobs]
+      tags: [Jobs v1]
       summary: List recent ingestion jobs
       operationId: listJobs
       responses:
-        '200':
+        "200":
           description: List of jobs
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/JobResponse'
+                  $ref: "#/components/schemas/JobResponse"
 
   /api/v1/jobs/{job_id}:
     get:
-      tags: [Jobs]
+      tags: [Jobs v1]
       summary: Get job status
       operationId: getJob
       parameters:
@@ -237,16 +237,16 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Job details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobResponse'
+                $ref: "#/components/schemas/JobResponse"
 
   /api/v1/jobs/{job_id}/cancel:
     post:
-      tags: [Jobs]
+      tags: [Jobs v1]
       summary: Request job cancellation
       operationId: cancelJob
       parameters:
@@ -256,17 +256,17 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Cancellation requested
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponse'
+                $ref: "#/components/schemas/IngestResponse"
 
   # --- v2 Ingestion API ---
   /api/v2/documents:
     get:
-      tags: [v2-Documents]
+      tags: [Ingestion v2]
       summary: List unique documents
       operationId: listDocumentsV2
       parameters:
@@ -276,14 +276,14 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Document list
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DocumentListResponse'
+                $ref: "#/components/schemas/DocumentListResponse"
     post:
-      tags: [v2-Documents]
+      tags: [Ingestion v2]
       summary: Generic multi-parser ingestion (JSON body)
       operationId: ingestDocumentV2
       requestBody:
@@ -291,18 +291,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DocumentIngestRequestV2'
+              $ref: "#/components/schemas/DocumentIngestRequestV2"
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponseV2'
+                $ref: "#/components/schemas/IngestResponseV2"
 
   /api/v2/documents/filter:
     post:
-      tags: [v2-Documents]
+      tags: [Ingestion v2]
       summary: Filter documents via POST body
       operationId: filterDocumentsV2
       requestBody:
@@ -310,18 +310,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DocumentFilterRequest'
+              $ref: "#/components/schemas/DocumentFilterRequest"
       responses:
-        '200':
+        "200":
           description: Document list
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DocumentListResponse'
+                $ref: "#/components/schemas/DocumentListResponse"
 
   /api/v2/documents/count:
     get:
-      tags: [v2-Documents]
+      tags: [Ingestion v2]
       summary: Count unique documents
       operationId: countDocumentsV2
       parameters:
@@ -331,16 +331,16 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Document count
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DocumentCountResponse'
+                $ref: "#/components/schemas/DocumentCountResponse"
 
   /api/v2/documents/upload:
     post:
-      tags: [v2-Documents]
+      tags: [Ingestion v2]
       summary: Generic multi-parser ingestion (multipart upload)
       operationId: uploadDocumentV2
       requestBody:
@@ -364,16 +364,16 @@ paths:
                   type: string
                   description: Optional JSON-encoded user metadata
       responses:
-        '202':
+        "202":
           description: Accepted for processing
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IngestResponseV2'
+                $ref: "#/components/schemas/IngestResponseV2"
 
   /api/v2/documents/{doc_id}:
     get:
-      tags: [v2-Documents]
+      tags: [Ingestion v2]
       summary: Get document details
       operationId: getDocumentV2
       parameters:
@@ -383,34 +383,34 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Document details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DocumentResponse'
-        '404':
+                $ref: "#/components/schemas/DocumentResponse"
+        "404":
           description: Document not found
 
   # --- v2 Jobs API ---
   /api/v2/jobs:
     get:
-      tags: [v2-Jobs]
+      tags: [Jobs v2]
       summary: List recent v2 ingestion jobs
       operationId: listJobsV2
       responses:
-        '200':
+        "200":
           description: List of jobs with stage information
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/JobResponseV2'
+                  $ref: "#/components/schemas/JobResponseV2"
 
   /api/v2/jobs/{job_id}:
     get:
-      tags: [v2-Jobs]
+      tags: [Jobs v2]
       summary: Get v2 job status
       operationId: getJobV2
       parameters:
@@ -420,30 +420,30 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Job details with pipeline stage
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobResponseV2'
+                $ref: "#/components/schemas/JobResponseV2"
 
   # --- Metadata API (v2) ---
   /api/v2/metadata/schema:
     get:
-      tags: [v2-Metadata]
+      tags: [Metadata v2]
       summary: Get metadata schema
       operationId: getMetadataSchemaV2
       responses:
-        '200':
+        "200":
           description: Available metadata keys
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MetadataSchemaResponse'
+                $ref: "#/components/schemas/MetadataSchemaResponse"
 
   /api/v2/metadata/values:
     get:
-      tags: [v2-Metadata]
+      tags: [Metadata v2]
       summary: Get values for a metadata key
       operationId: getMetadataValuesV2
       parameters:
@@ -453,17 +453,17 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Available values
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MetadataValuesResponse'
+                $ref: "#/components/schemas/MetadataValuesResponse"
 
   # --- Retrieval API (v2) ---
   /api/v2/retrieval/query:
     post:
-      tags: [v2-Retrieval]
+      tags: [Retrieval v2]
       summary: Vector search with metadata filters
       operationId: queryRetrievalV2
       requestBody:
@@ -471,19 +471,19 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RetrievalRequest'
+              $ref: "#/components/schemas/RetrievalRequest"
       responses:
-        '200':
+        "200":
           description: Search results
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RetrievalResponse'
+                $ref: "#/components/schemas/RetrievalResponse"
 
   # --- Artifacts API (v2) ---
   /api/v2/artifacts:
     post:
-      tags: [Artifacts]
+      tags: [Artifacts v2]
       summary: Create artifact generation job
       operationId: createArtifact
       requestBody:
@@ -491,18 +491,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ArtifactRequestV2'
+              $ref: "#/components/schemas/ArtifactRequestV2"
       responses:
-        '202':
+        "202":
           description: Artifact job accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ArtifactResponseV2'
+                $ref: "#/components/schemas/ArtifactResponseV2"
 
   /api/v2/artifacts/{artifact_id}:
     get:
-      tags: [Artifacts]
+      tags: [Artifacts v2]
       summary: Get artifact metadata and status
       operationId: getArtifact
       parameters:
@@ -512,16 +512,16 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Artifact job details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobResponseV2'
-        '404':
+                $ref: "#/components/schemas/JobResponseV2"
+        "404":
           description: Artifact not found
     delete:
-      tags: [Artifacts]
+      tags: [Artifacts v2]
       summary: Delete artifact
       operationId: deleteArtifact
       parameters:
@@ -531,12 +531,12 @@ paths:
           schema:
             type: string
       responses:
-        '204':
+        "204":
           description: Artifact deleted or not found
 
   /api/v2/artifacts/{artifact_id}/content:
     get:
-      tags: [Artifacts]
+      tags: [Artifacts v2]
       summary: Download rendered artifact content
       operationId: getArtifactContent
       parameters:
@@ -546,30 +546,30 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Rendered file content
           content:
             application/octet-stream:
               schema:
                 type: string
                 format: binary
-        '202':
+        "202":
           description: Artifact generation still in progress
-        '404':
+        "404":
           description: Artifact not found
 
   /api/v2/capabilities:
     get:
-      tags: [Artifacts]
+      tags: [Artifacts v2]
       summary: Get system capabilities and renderers
       operationId: getCapabilities
       responses:
-        '200':
+        "200":
           description: Capability report
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ArtifactCapabilitiesResponseV2'
+                $ref: "#/components/schemas/ArtifactCapabilitiesResponseV2"
 
   # --- OpenAI Chat API ---
   /v1/models:
@@ -578,12 +578,12 @@ paths:
       summary: List available models
       operationId: listModels
       responses:
-        '200':
+        "200":
           description: OpenAI-compatible model list
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListModelsResponse'
+                $ref: "#/components/schemas/ListModelsResponse"
 
   /v1/chat/completions:
     post:
@@ -595,92 +595,92 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ChatCompletionRequest'
+              $ref: "#/components/schemas/ChatCompletionRequest"
       responses:
-        '200':
+        "200":
           description: Chat completion result (or stream if requested)
           content:
             application/json:
               schema:
                 oneOf:
-                  - $ref: '#/components/schemas/ChatCompletionResponse'
+                  - $ref: "#/components/schemas/ChatCompletionResponse"
                   - type: string
                     format: binary
                     description: Server-Sent Events stream
 
-  # --- Adapter API ---
+  # --- Gateway API ---
   /healthz:
     get:
-      tags: [Adapter]
+      tags: [Gateway]
       summary: Liveness probe
       responses:
-        '200':
+        "200":
           description: OK
-  
+
   /readyz:
     get:
-      tags: [Adapter]
+      tags: [Gateway]
       summary: Readiness probe
       responses:
-        '200':
+        "200":
           description: System ready
-        '503':
+        "503":
           description: Service unavailable
 
   /api/v1/sync:
     post:
-      tags: [Adapter]
+      tags: [Gateway]
       summary: Trigger manual synchronization cycle
       responses:
-        '200':
+        "200":
           description: Sync results
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SyncResult'
+                $ref: "#/components/schemas/SyncResult"
 
   /api/v1/mappings:
     get:
-      tags: [Adapter]
+      tags: [Gateway]
       summary: List file mappings
       responses:
-        '200':
+        "200":
           description: List of mappings
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/MappingRecord'
+                  $ref: "#/components/schemas/MappingRecord"
 
   /api/v1/chat/message:
     post:
-      tags: [Adapter]
+      tags: [Gateway]
       summary: Receive chat message webhook
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ChatMessagePayload'
+              $ref: "#/components/schemas/ChatMessagePayload"
       responses:
-        '200':
+        "200":
           description: Processing status
 
   /api/v1/events:
     post:
-      tags: [Adapter]
+      tags: [Gateway]
       summary: Receive system events webhook
       responses:
-        '200':
+        "200":
           description: Event processed
 
   /metrics:
     get:
-      tags: [Adapter]
+      tags: [Gateway]
       summary: Prometheus metrics
       responses:
-        '200':
+        "200":
           description: Plaintext metrics
 
   # --- Internal / Debug API ---
@@ -695,7 +695,7 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Context state
 
   /internal/mappings/documents:
@@ -703,7 +703,7 @@ paths:
       tags: [Internal]
       summary: List all document mappings (internal)
       responses:
-        '200':
+        "200":
           description: List of records
 
   /internal/mappings/documents/{owui_file_id}:
@@ -717,7 +717,7 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Mapping record
 
   /internal/mappings/knowledge-bases:
@@ -725,7 +725,7 @@ paths:
       tags: [Internal]
       summary: List knowledge base mappings
       responses:
-        '200':
+        "200":
           description: List of KB mappings
 
 components:
@@ -735,73 +735,73 @@ components:
       type: object
       required: [source_path, content_text]
       properties:
-        source_path: {type: string}
-        page_title: {type: string}
-        content_text: {type: string}
-        user_metadata: {type: object, additionalProperties: {type: string}}
+        source_path: { type: string }
+        page_title: { type: string }
+        content_text: { type: string }
+        user_metadata: { type: object, additionalProperties: { type: string } }
 
     HtmlIngestRequest:
       type: object
       required: [source_path, html_content]
       properties:
-        source_path: {type: string}
-        page_title: {type: string}
-        html_content: {type: string}
-        origin_file_path: {type: string}
-        user_metadata: {type: object, additionalProperties: {type: string}}
+        source_path: { type: string }
+        page_title: { type: string }
+        html_content: { type: string }
+        origin_file_path: { type: string }
+        user_metadata: { type: object, additionalProperties: { type: string } }
 
     PdfIngestRequest:
       type: object
       required: [source_path, content_text, page_number]
       properties:
-        source_path: {type: string}
-        page_title: {type: string}
-        content_text: {type: string}
-        page_number: {type: integer}
-        total_pages: {type: integer}
-        user_metadata: {type: object, additionalProperties: {type: string}}
+        source_path: { type: string }
+        page_title: { type: string }
+        content_text: { type: string }
+        page_number: { type: integer }
+        total_pages: { type: integer }
+        user_metadata: { type: object, additionalProperties: { type: string } }
 
     MarkdownSection:
       type: object
       required: [content]
       properties:
-        heading: {type: string}
-        content: {type: string}
+        heading: { type: string }
+        content: { type: string }
 
     MarkdownIngestRequest:
       type: object
       required: [source_path, page_title, sections]
       properties:
-        source_path: {type: string}
-        page_title: {type: string}
+        source_path: { type: string }
+        page_title: { type: string }
         sections:
           type: array
           items:
-            $ref: '#/components/schemas/MarkdownSection'
-        user_metadata: {type: object, additionalProperties: {type: string}}
+            $ref: "#/components/schemas/MarkdownSection"
+        user_metadata: { type: object, additionalProperties: { type: string } }
 
     ImageIngestRequest:
       type: object
       required: [source_path, file_path]
       properties:
-        source_path: {type: string}
-        page_title: {type: string}
-        file_path: {type: string}
-        user_metadata: {type: object, additionalProperties: {type: string}}
+        source_path: { type: string }
+        page_title: { type: string }
+        file_path: { type: string }
+        user_metadata: { type: object, additionalProperties: { type: string } }
 
     MediaWikiIngestRequest:
       type: object
       required: [source_path, page_title, content_text]
       properties:
-        source_path: {type: string}
-        page_title: {type: string}
-        content_text: {type: string}
-        page_id: {type: integer}
-        namespace: {type: integer}
+        source_path: { type: string }
+        page_title: { type: string }
+        content_text: { type: string }
+        page_id: { type: integer }
+        namespace: { type: integer }
         linked_assets:
           type: array
-          items: {type: string}
-        user_metadata: {type: object, additionalProperties: {type: string}}
+          items: { type: string }
+        user_metadata: { type: object, additionalProperties: { type: string } }
 
     ChunkIngestRequest:
       type: object
@@ -809,23 +809,23 @@ components:
       properties:
         chunks:
           type: array
-          items: {type: object} # Simplification for Chunk
+          items: { type: object } # Simplification for Chunk
 
     IngestResponse:
       type: object
       required: [status, message]
       properties:
-        status: {type: string}
-        message: {type: string}
-        job_id: {type: string}
+        status: { type: string }
+        message: { type: string }
+        job_id: { type: string }
 
     IngestResponseV2:
       type: object
       required: [status, message, job_id]
       properties:
-        status: {type: string}
-        message: {type: string}
-        job_id: {type: string}
+        status: { type: string }
+        message: { type: string }
+        job_id: { type: string }
 
     DocumentIngestRequestV2:
       type: object
@@ -839,7 +839,7 @@ components:
           description: Explicit MIME type hint.
         user_metadata:
           type: object
-          additionalProperties: {type: string}
+          additionalProperties: { type: string }
           description: Optional user-provided key/value metadata.
         parser_hint:
           type: string
@@ -847,67 +847,68 @@ components:
 
     JobStage:
       type: string
-      enum: [DETECTING, PREPROCESSING, PARSING, NORMALIZATION, CHUNKING, INDEXING]
+      enum:
+        [DETECTING, PREPROCESSING, PARSING, NORMALIZATION, CHUNKING, INDEXING]
       description: Ordered stages of the v2 ingestion pipeline.
 
     JobResponseV2:
       type: object
       properties:
-        job_id: {type: string}
-        status: {type: string}
-        source: {type: string}
-        job_type: {type: string}
-        current_stage: {type: string}
-        stages_completed: {type: array, items: {type: string}}
-        created_at: {type: string}
-        updated_at: {type: string}
-        error: {type: string}
+        job_id: { type: string }
+        status: { type: string }
+        source: { type: string }
+        job_type: { type: string }
+        current_stage: { type: string }
+        stages_completed: { type: array, items: { type: string } }
+        created_at: { type: string }
+        updated_at: { type: string }
+        error: { type: string }
 
     ArtifactRequestV2:
       type: object
       required: [artifact_type, format]
       properties:
-        artifact_type: {type: string}
-        format: {type: string}
-        parameters: {type: object, additionalProperties: {type: string}}
-        user_metadata: {type: object, additionalProperties: {type: string}}
+        artifact_type: { type: string }
+        format: { type: string }
+        parameters: { type: object, additionalProperties: { type: string } }
+        user_metadata: { type: object, additionalProperties: { type: string } }
 
     ArtifactResponseV2:
       type: object
       properties:
-        status: {type: string}
-        message: {type: string}
-        job_id: {type: string}
-        artifact_id: {type: string}
+        status: { type: string }
+        message: { type: string }
+        job_id: { type: string }
+        artifact_id: { type: string }
 
     ArtifactCapabilitiesResponseV2:
       type: object
       properties:
-        supported_formats: {type: array, items: {type: string}}
-        supported_types: {type: array, items: {type: string}}
-        templates: {type: array, items: {type: string}}
-        error: {type: string}
+        supported_formats: { type: array, items: { type: string } }
+        supported_types: { type: array, items: { type: string } }
+        templates: { type: array, items: { type: string } }
+        error: { type: string }
 
     JobResponse:
       type: object
       required: [job_id, status, source, job_type, created_at, updated_at]
       properties:
-        job_id: {type: string}
-        status: {type: string}
-        source: {type: string}
-        job_type: {type: string}
-        created_at: {type: string}
-        updated_at: {type: string}
-        error: {type: string}
+        job_id: { type: string }
+        status: { type: string }
+        source: { type: string }
+        job_type: { type: string }
+        created_at: { type: string }
+        updated_at: { type: string }
+        error: { type: string }
 
     DocumentResponse:
       type: object
       required: [doc_id, source_path, page_title]
       properties:
-        doc_id: {type: string}
-        source_path: {type: string}
-        page_title: {type: string}
-        user_metadata: {type: object, additionalProperties: {type: string}}
+        doc_id: { type: string }
+        source_path: { type: string }
+        page_title: { type: string }
+        user_metadata: { type: object, additionalProperties: { type: string } }
 
     DocumentListResponse:
       type: object
@@ -916,14 +917,14 @@ components:
         documents:
           type: array
           items:
-            $ref: '#/components/schemas/DocumentResponse'
-        total: {type: integer}
+            $ref: "#/components/schemas/DocumentResponse"
+        total: { type: integer }
 
     DocumentCountResponse:
       type: object
       required: [count]
       properties:
-        count: {type: integer}
+        count: { type: integer }
 
     MetadataSchemaResponse:
       type: object
@@ -931,24 +932,25 @@ components:
       properties:
         keys:
           type: array
-          items: {type: string}
+          items: { type: string }
 
     MetadataValuesResponse:
       type: object
       required: [key, values]
       properties:
-        key: {type: string}
+        key: { type: string }
         values:
           type: array
-          items: {type: string}
+          items: { type: string }
 
     RetrievalRequest:
       type: object
       required: [query]
       properties:
-        query: {type: string}
-        top_k: {type: integer, default: 5}
-        user_metadata_filter: {type: object, additionalProperties: {type: string}}
+        query: { type: string }
+        top_k: { type: integer, default: 5 }
+        user_metadata_filter:
+          { type: object, additionalProperties: { type: string } }
 
     RetrievalResponse:
       type: object
@@ -956,7 +958,7 @@ components:
       properties:
         chunks:
           type: array
-          items: {type: object}
+          items: { type: object }
 
     DocumentFilterRequest:
       type: object
@@ -966,97 +968,97 @@ components:
           properties:
             user_metadata:
               type: object
-              additionalProperties: {type: string}
+              additionalProperties: { type: string }
 
     # --- OpenAI Schemas ---
     ListModelsResponse:
       type: object
       properties:
-        object: {type: string}
+        object: { type: string }
         data:
           type: array
           items:
             type: object
             properties:
-              id: {type: string}
-              object: {type: string}
-              created: {type: integer}
-              owned_by: {type: string}
+              id: { type: string }
+              object: { type: string }
+              created: { type: integer }
+              owned_by: { type: string }
 
     ChatCompletionRequest:
       type: object
       required: [model, messages]
       properties:
-        model: {type: string}
+        model: { type: string }
         messages:
           type: array
           items:
-            $ref: '#/components/schemas/ChatMessage'
-        stream: {type: boolean}
-        temperature: {type: number}
-        top_p: {type: number}
+            $ref: "#/components/schemas/ChatMessage"
+        stream: { type: boolean }
+        temperature: { type: number }
+        top_p: { type: number }
 
     ChatMessage:
       type: object
       required: [role, content]
       properties:
-        role: {type: string, enum: [system, user, assistant]}
-        content: {type: string}
-        metadata: {type: object}
+        role: { type: string, enum: [system, user, assistant] }
+        content: { type: string }
+        metadata: { type: object }
 
     ChatCompletionResponse:
       type: object
       properties:
-        id: {type: string}
-        object: {type: string}
-        created: {type: integer}
-        model: {type: string}
+        id: { type: string }
+        object: { type: string }
+        created: { type: integer }
+        model: { type: string }
         choices:
           type: array
           items:
             type: object
             properties:
-              index: {type: integer}
+              index: { type: integer }
               message:
-                $ref: '#/components/schemas/ChatMessage'
-              finish_reason: {type: string}
+                $ref: "#/components/schemas/ChatMessage"
+              finish_reason: { type: string }
         usage:
           type: object
           properties:
-            prompt_tokens: {type: integer}
-            completion_tokens: {type: integer}
-            total_tokens: {type: integer}
+            prompt_tokens: { type: integer }
+            completion_tokens: { type: integer }
+            total_tokens: { type: integer }
         sources:
           type: array
-          items: {type: object}
+          items: { type: object }
 
-    # --- Adapter Schemas ---
+    # --- Gateway Schemas ---
     SyncResult:
       type: object
       properties:
-        ingested: {type: integer}
-        deleted: {type: integer}
-        failed: {type: integer}
-        retried: {type: integer}
-        skipped: {type: integer}
-        errors: {type: array, items: {type: string}}
+        ingested: { type: integer }
+        deleted: { type: integer }
+        failed: { type: integer }
+        retried: { type: integer }
+        skipped: { type: integer }
+        errors: { type: array, items: { type: string } }
 
     MappingRecord:
       type: object
       properties:
-        owui_file_id: {type: string}
-        filename: {type: string}
-        retriva_doc_id: {type: string}
-        content_hash: {type: string}
-        status: {type: string}
-        created_at: {type: string}
-        updated_at: {type: string}
+        owui_file_id: { type: string }
+        filename: { type: string }
+        retriva_doc_id: { type: string }
+        content_hash: { type: string }
+        status: { type: string }
+        created_at: { type: string }
+        updated_at: { type: string }
 
     ChatMessagePayload:
       type: object
       required: [chat_id, message]
       properties:
-        chat_id: {type: string}
-        message: {type: string}
-        kb_ids: {type: array, items: {type: string}}
-        file_ids: {type: array, items: {type: string}}
+        chat_id: { type: string }
+        message: { type: string }
+        kb_ids: { type: array, items: { type: string } }
+        file_ids: { type: array, items: { type: string } }
