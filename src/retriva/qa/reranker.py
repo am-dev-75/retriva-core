@@ -199,7 +199,10 @@ class DefaultReranker:
         for r in results:
             idx = r.get("index")
             if idx is not None and 0 <= idx < len(chunks):
-                reranked.append(chunks[idx])
+                chunk = chunks[idx]
+                # Sync _score so that subsequent sorting/diversity filters use the reranked score
+                chunk["_score"] = r.get("relevance_score", 0.0)
+                reranked.append(chunk)
             else:
                 logger.warning(f"Reranker returned out-of-bounds index {idx}, skipping.")
 

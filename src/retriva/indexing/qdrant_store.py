@@ -177,8 +177,22 @@ def search_chunks(
             limit=retriever_top_k,
             with_payload=True
         )
-        logger.info(f"[{rid}] hard_recall_completed: results={len(results.points)}")
-        return [hit.payload for hit in results.points]
+        
+        # In hard mode, all results passed metadata filters and are ranked semantically
+        reasons = ["semantic"]
+        if metadata_filters:
+            for f in metadata_filters:
+                reasons.append(f"metadata:{f['field']}")
+        
+        output = []
+        for hit in results.points:
+            payload = hit.payload.copy()
+            payload["_score"] = hit.score
+            payload["_match_reasons"] = reasons
+            output.append(payload)
+            
+        logger.info(f"[{rid}] hard_recall_completed: results={len(output)}")
+        return output
     else:
         # Soft mode: Multi-recall merge
         
@@ -250,14 +264,13 @@ def search_chunks(
             
             # Apply boosts
             if "metadata" in reasons:
-                # Strong boost to protect metadata matches as requested by USER
-                # Using 2.0 to ensure they float to the top in soft mode
                 score += 2.0
             if "keyword" in reasons:
                 score += 0.1
                 
-            # Store match reasons in payload for propagation
+            # Store match reasons and score in payload for propagation
             payload = hit.payload.copy()
+            payload["_score"] = score
             payload["_match_reasons"] = reasons
             
             scored_results.append({

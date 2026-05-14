@@ -79,41 +79,89 @@ def _hybrid_select_if_enabled(
     )
 
 
+def _apply_diversity_filter(chunks: List[Dict], max_per_doc: int) -> List[Dict]:
+    """Group chunks by doc_id and keep only top N per document.
+
+    Assumes chunks are already sorted by score (relevance).
+    """
+    if not chunks or max_per_doc <= 0:
+        return chunks
+
+    doc_counts = {}  # doc_id -> count
+    filtered = []
+
+    for chunk in chunks:
+        # Use doc_id if available, fallback to source_path
+        doc_id = chunk.get("doc_id") or chunk.get("source_path")
+        if not doc_id:
+            filtered.append(chunk)
+            continue
+
+        count = doc_counts.get(doc_id, 0)
+        if count < max_per_doc:
+            filtered.append(chunk)
+            doc_counts[doc_id] = count + 1
+        else:
+            logger.debug(f"Diversity filter: capping {doc_id} at {max_per_doc} chunks")
+
+    return filtered
+
+
 class DefaultRetriever:
     """OSS default retriever — semantic search via embeddings + Qdrant."""
 
     def retrieve(
-        self, 
-        query: str, 
-        top_k: int = 20, 
+        self,
+        query: str,
+        top_k: int = 20,
         metadata_filters: Optional[List[Dict[str, Any]]] = None,
         metadata_filter_mode: str = "soft",
         rerank: bool = True,
         hybrid_selection: bool = True
     ) -> List[Dict]:
-        """Run the full retrieval pipeline: vector search -> rerank -> hybrid select."""
-        
+        """Run the full retrieval pipeline: vector search -> rerank -> diversity -> hybrid select."""
+
         # 1. Broad retrieval
+        # In hard mode, we fetch more candidates than top_k to allow diversity filtering
+        if metadata_filter_mode == "hard":
+            fetch_k = max(top_k * settings.retrieval_fetch_k_multiplier, 50)
+            logger.info(f"Retrieval diversity: hard mode enabled, fetching {fetch_k} candidates for top_{top_k}")
+        else:
+            fetch_k = top_k
+
         chunks = retrieve_top_chunks(
-            query, 
-            retriever_top_k=top_k, 
+            query,
+            retriever_top_k=fetch_k,
             metadata_filters=metadata_filters,
             metadata_filter_mode=metadata_filter_mode
         )
-        
+
         if not chunks:
             return []
 
         # 2. Pipeline processing
         vector_top = chunks[:]
-        
+
+        # A. Reranking (Cross-Encoder)
         if rerank:
             chunks = _rerank_if_enabled(query, chunks, enabled=rerank)
-            
+
+        # B. Diversity Filtering (Per-document cap)
+        # We only apply this in hard mode for now as requested
+        if metadata_filter_mode == "hard":
+            max_per_doc = settings.retrieval_max_chunks_per_doc
+            chunks = _apply_diversity_filter(chunks, max_per_doc)
+            logger.info(f"Retrieval diversity: applied cap={max_per_doc}, pool reduced to {len(chunks)}")
+
+        # C. Hybrid Retrieval Selection
         if hybrid_selection:
             chunks = _hybrid_select_if_enabled(chunks, vector_top, enabled=hybrid_selection)
-            
-        return chunks
+
+        # 3. Final Sort and Limit to top_k
+        # Ensure we return exactly top_k chunks based on the final scores
+        # Chunks from qdrant_store and reranker should already have scores.
+        chunks.sort(key=lambda x: x.get("_score", 0.0), reverse=True)
+        return chunks[:top_k]
 
 
 # Register as default implementation
