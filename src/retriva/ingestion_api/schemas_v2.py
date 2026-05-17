@@ -193,11 +193,22 @@ class ArtifactCapabilitiesResponseV2(BaseModel):
 
 class DocumentResponse(BaseModel):
     """Document representation retrieved from vector store."""
+    id: str
     doc_id: str
+    kb_id: str = "default"
+    filename: str = ""
+    size: int = 0
+    ingestion_status: str = "completed"
+    created_at: str = ""
     source_path: str
     page_title: str
     user_metadata: Optional[Dict[str, str]] = None
+    metadata: Optional[Dict[str, str]] = None  # Frontend alias
     match_reasons: List[str] = Field(default_factory=list, description="List of reasons why this document matched (semantic, metadata:field, etc.)")
+
+    @property
+    def id(self) -> str:
+        return self.doc_id
 
 class DocumentListResponse(BaseModel):
     """Response containing a list of documents."""
@@ -260,3 +271,5 @@ class DocumentSearchRequest(BaseModel):
     metadata_filters: List[MetadataFilter] = Field(default_factory=list, description="Optional metadata filters to apply.")
     metadata_filter_mode: MetadataFilterMode = Field(MetadataFilterMode.SOFT, description="Filtering mode (hard or soft).")
     limit: int = Field(50, description="Maximum number of documents to return.")
+    is_discovery: bool = Field(False, description="If true, use wildcard/keyword search instead of semantic search.")
+    case_sensitive: bool = Field(False, description="If true, apply case-sensitive matching for discovery search.")

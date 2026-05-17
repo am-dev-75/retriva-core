@@ -28,6 +28,10 @@ class ChunkMetadata(BaseModel):
     image_path: Optional[str] = None
     ingestion_timestamp: Optional[str] = None
     kb_id: str = "default"
+    filename: Optional[str] = None
+    content_size: Optional[int] = None
+    ingestion_status: str = "completed"
+    created_at: Optional[str] = None
     user_metadata: Optional[Dict[str, str]] = None
     # --- Deduplication fields (v2, optional for backward compat) ---
     content_hash: Optional[str] = None
@@ -58,6 +62,10 @@ class ParsedDocument(BaseModel):
     images: List[ImageContext] = Field(default_factory=list)
     user_metadata: Optional[Dict[str, str]] = None
     kb_id: str = "default"
+    filename: Optional[str] = None
+    content_size: Optional[int] = None
+    ingestion_status: str = "completed"
+    created_at: Optional[str] = None
     # --- Deduplication fields (v2, optional for backward compat) ---
     doc_id: Optional[str] = None
     content_hash: Optional[str] = None

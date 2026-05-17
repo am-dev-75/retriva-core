@@ -31,6 +31,7 @@ import json as _json
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -169,6 +170,9 @@ def process_document_v2(
     content_hash: Optional[str] = None,
     kb_id: str = "default",
     source_paths: Optional[List[str]] = None,
+    content_size: Optional[int] = None,
+    ingestion_status: str = "completed",
+    created_at: Optional[str] = None,
 ):
     """Execute the 6-stage v2 ingestion pipeline in a background thread."""
     manager = JobManager()
@@ -253,6 +257,10 @@ def process_document_v2(
         normalized.kb_id = kb_id
         normalized.content_hash = content_hash
         normalized.source_paths = source_paths or [source_uri]
+        normalized.filename = Path(source_uri).name
+        normalized.content_size = content_size
+        normalized.ingestion_status = ingestion_status
+        normalized.created_at = created_at
         normalized.content_text = normalize_text(normalized.content_text)
 
         if not normalized.content_text.strip() and not normalized.images:
@@ -449,7 +457,9 @@ async def search_documents_v2(request: DocumentSearchRequest):
             limit=request.limit,
             metadata_filters=filters,
             metadata_filter_mode=request.metadata_filter_mode.value,
-            kb_ids=request.kb_ids
+            kb_ids=request.kb_ids,
+            is_discovery=request.is_discovery,
+            case_sensitive=request.case_sensitive
         )
         
         duration_ms = int((time.time() - start_time) * 1000)
@@ -466,10 +476,12 @@ async def search_documents_v2(request: DocumentSearchRequest):
             total=len(docs)
         )
     except Exception as e:
-        logger.error(f"Error searching documents: {e}")
+        import traceback
+        error_msg = f"{e}\n{traceback.format_exc()}"
+        logger.error(f"Error searching documents: {error_msg}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail=error_msg,
         )
 
 
@@ -494,6 +506,7 @@ async def ingest_document_v2(
         payload.user_metadata,
         payload.parser_hint,
         job.id,
+        # No size/status/created_at for generic ingest (will use defaults)
     )
     return IngestResponseV2(
         status="accepted",
@@ -656,6 +669,9 @@ async def upload_document_v2(
         content_hash=content_hash,
         kb_id=kb_id,
         source_paths=[source_path],
+        content_size=content_size,
+        ingestion_status="completed",
+        created_at=record.created_at,
     )
 
     logger.info(

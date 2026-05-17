@@ -18,7 +18,7 @@ from typing import Callable, List, Optional, Dict, Any, Union
 from qdrant_client.models import (
     VectorParams, Distance, PointStruct, Filter, FieldCondition, 
     MatchValue, MatchExcept, MatchAny, IsEmptyCondition, 
-    HasIdCondition, MatchText, Prefetch, QueryRequest
+    HasIdCondition, MatchText, Prefetch, QueryRequest, PayloadField
 )
 from qdrant_client.http.exceptions import ResponseHandlingException
 from retriva.config import settings
@@ -137,7 +137,7 @@ def build_qdrant_filter(filters: List[Dict[str, Any]]) -> Optional[Filter]:
         if op == "eq":
             must_conditions.append(FieldCondition(key=field, match=MatchValue(value=val)))
         elif op == "exists":
-            must_conditions.append(Filter(must_not=[IsEmptyCondition(key=field)]))
+            must_conditions.append(Filter(must_not=[IsEmptyCondition(is_empty=PayloadField(key=field))]))
         elif op == "neq":
             must_conditions.append(Filter(must_not=[FieldCondition(key=field, match=MatchValue(value=val))]))
         elif op == "contains":
@@ -408,7 +408,7 @@ def list_documents(client: QdrantClient, metadata_filter: Optional[Dict[str, str
             scroll_filter=scroll_filter,
             limit=1000,
             offset=next_offset,
-            with_payload=["doc_id", "source_path", "page_title", "user_metadata"],
+            with_payload=["doc_id", "source_path", "page_title", "user_metadata", "kb_id", "filename", "content_size", "ingestion_status", "created_at"],
             with_vectors=False
         )
         
@@ -416,10 +416,17 @@ def list_documents(client: QdrantClient, metadata_filter: Optional[Dict[str, str
             d_id = point.payload.get("doc_id")
             if d_id and d_id not in unique_docs:
                 unique_docs[d_id] = {
+                    "id": d_id,
                     "doc_id": d_id,
                     "source_path": point.payload.get("source_path", ""),
                     "page_title": point.payload.get("page_title", ""),
-                    "user_metadata": point.payload.get("user_metadata", None),
+                    "user_metadata": point.payload.get("user_metadata") or {},
+                    "metadata": point.payload.get("user_metadata") or {},
+                    "kb_id": point.payload.get("kb_id") or "default",
+                    "filename": point.payload.get("filename") or "",
+                    "size": point.payload.get("content_size") or 0,
+                    "ingestion_status": point.payload.get("ingestion_status") or "completed",
+                    "created_at": point.payload.get("created_at") or "",
                 }
                 
         if next_offset is None:
@@ -485,13 +492,99 @@ def search_documents(
     limit: int = 50,
     metadata_filters: Optional[List[Dict[str, Any]]] = None,
     metadata_filter_mode: str = "soft",
-    kb_ids: Optional[List[str]] = None
+    kb_ids: Optional[List[str]] = None,
+    is_discovery: bool = False,
+    case_sensitive: bool = False
 ) -> List[dict]:
     """
     Search for unique documents with metadata filtering.
     """
     rid = _get_req_id()
-    logger.info(f"[{rid}] search_documents_started: query='{query}', mode={metadata_filter_mode}")
+    logger.info(f"[{rid}] search_documents_started: query='{query}', mode={metadata_filter_mode}, discovery={is_discovery}")
+    
+    if is_discovery and query:
+        # Wildcard/Regex Search for Discovery (Python-side filtering as Qdrant lacks MatchRegex)
+        import re
+        # Convert glob (*, ?) to regex
+        regex_query = re.escape(query).replace(r'\*', '.*').replace(r'\?', '.')
+        # If it doesn't start/end with wildcards, assume partial match
+        if not regex_query.startswith('.*'): regex_query = '.*' + regex_query
+        if not regex_query.endswith('.*'): regex_query = regex_query + '.*'
+        
+        try:
+            flags = 0 if case_sensitive else re.IGNORECASE
+            pattern = re.compile(regex_query, flags)
+        except re.error as e:
+            logger.error(f"[{rid}] Invalid discovery query '{query}': {e}")
+            return []
+
+        must_conditions = []
+        if kb_ids:
+            kb_should = [
+                FieldCondition(key="kb_id", match=MatchAny(any=kb_ids)),
+                FieldCondition(key="user_metadata.kb_id", match=MatchAny(any=kb_ids)),
+            ]
+            # If 'default' is requested, also include points with no kb_id at all (legacy)
+            if "default" in kb_ids:
+                kb_should.append(IsEmptyCondition(is_empty=PayloadField(key="kb_id")))
+                
+            kb_filter = Filter(should=kb_should)
+            must_conditions.append(kb_filter)
+        
+        # Build discovery filter for KBs only; we'll match title/path in Python
+        discovery_filter = Filter(must=must_conditions) if must_conditions else None
+        
+        try:
+            # Use scroll to find matching documents directly (no vectors)
+            unique_docs = {}
+            next_offset = None
+            while True:
+                points, next_offset = client.scroll(
+                    collection_name=COLLECTION_NAME,
+                    scroll_filter=discovery_filter,
+                    limit=100,
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                for point in points:
+                    payload = point.payload
+                    filename = payload.get("filename") or ""
+                    
+                    # Apply regex matching against filename (matches UI display)
+                    if pattern.search(filename):
+                        doc_id = payload.get("doc_id")
+                        if doc_id and doc_id not in unique_docs:
+                            unique_docs[doc_id] = {
+                                "id": doc_id,
+                                "doc_id": doc_id,
+                                "source_path": payload.get("source_path") or "",
+                                "page_title": payload.get("page_title") or "",
+                                "user_metadata": payload.get("user_metadata") or {},
+                                "metadata": payload.get("user_metadata") or {},
+                                "kb_id": payload.get("kb_id") or "default",
+                                "filename": payload.get("filename") or "",
+                                "size": payload.get("content_size") or 0,
+                                "ingestion_status": payload.get("ingestion_status") or "completed",
+                                "created_at": payload.get("created_at") or "",
+                                "ingestion_timestamp": payload.get("ingestion_timestamp"),
+                                "match_reasons": ["wildcard_match"]
+                            }
+                    
+                    if len(unique_docs) >= limit:
+                        break
+                
+                if next_offset is None or len(unique_docs) >= limit:
+                    break
+                    
+            return list(unique_docs.values())
+        except Exception as e:
+            import traceback
+            logger.error(f"[{rid}] Discovery search failed: {e}\n{traceback.format_exc()}")
+            raise e
+
+    # Default Semantic Search Path
     query_vector = get_embeddings([query])[0]
     chunks = search_chunks(
         client=client,
@@ -514,10 +607,18 @@ def search_documents(
             chunk_reasons = chunk.get("_match_reasons", ["semantic"])
             
             unique_docs[doc_id] = {
+                "id": doc_id,
                 "doc_id": doc_id,
                 "source_path": chunk.get("source_path", ""),
                 "page_title": chunk.get("page_title", ""),
                 "user_metadata": chunk.get("user_metadata", {}),
+                "metadata": chunk.get("user_metadata", {}),
+                "kb_id": chunk.get("kb_id") or "default",
+                "filename": chunk.get("filename") or "",
+                "size": chunk.get("content_size") or 0,
+                "ingestion_status": chunk.get("ingestion_status") or "completed",
+                "created_at": chunk.get("created_at") or "",
+                "ingestion_timestamp": chunk.get("ingestion_timestamp"),
                 "match_reasons": chunk_reasons
             }
             
