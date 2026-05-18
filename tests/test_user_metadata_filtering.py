@@ -1,3 +1,17 @@
+# Copyright (C) 2026 Andrea Marson (am.dev.75@gmail.com)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import pytest
 import uuid
 import asyncio
@@ -78,19 +92,41 @@ def test_qdrant_metadata_filtering(setup_qdrant):
     assert len(results) == 3
     
     # 3. Test search with metadata filter (tenant=acme)
-    results_acme = search_chunks(client, query_vector, retriever_top_k=10, metadata_filter={"tenant": "acme"})
+    results_acme = search_chunks(
+        client,
+        query_vector,
+        retriever_top_k=10,
+        metadata_filters=[{"field": "user_metadata.tenant", "operator": "eq", "value": "acme"}],
+        metadata_filter_mode="hard"
+    )
     assert len(results_acme) == 2
     boards = {r["user_metadata"]["board"] for r in results_acme}
     assert boards == {"aura", "bora"}
     
     # 4. Test search with multi-key filter
-    results_aura = search_chunks(client, query_vector, retriever_top_k=10, metadata_filter={"tenant": "acme", "board": "aura"})
+    results_aura = search_chunks(
+        client,
+        query_vector,
+        retriever_top_k=10,
+        metadata_filters=[
+            {"field": "user_metadata.tenant", "operator": "eq", "value": "acme"},
+            {"field": "user_metadata.board", "operator": "eq", "value": "aura"}
+        ],
+        metadata_filter_mode="hard"
+    )
     assert len(results_aura) == 1
     assert results_aura[0]["user_metadata"]["board"] == "aura"
     
     # 5. Test DefaultRetriever passes filter correctly
     retriever = DefaultRetriever()
-    retriever_results = retriever.retrieve("power consumption", top_k=10, metadata_filter={"tenant": "globex"})
+    retriever_results = retriever.retrieve(
+        "power consumption",
+        top_k=10,
+        metadata_filters=[{"field": "user_metadata.tenant", "operator": "eq", "value": "globex"}],
+        metadata_filter_mode="hard",
+        rerank=False,
+        hybrid_selection=False
+    )
     assert len(retriever_results) == 1
     assert retriever_results[0]["user_metadata"]["board"] == "secret"
 

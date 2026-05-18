@@ -1,3 +1,17 @@
+# Copyright (C) 2026 Andrea Marson (am.dev.75@gmail.com)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import pytest
 import uuid
 import json
@@ -75,18 +89,21 @@ def test_catalog_schema_values(setup_qdrant_catalog, test_client):
         # Test schema
         response = test_client.get("/api/v2/metadata/schema")
         assert response.status_code == 200
-        assert "project" in response.json()["keys"]
-        assert "department" in response.json()["keys"]
+        fields = [f["field"] for f in response.json()["fields"]]
+        assert "user_metadata.project" in fields
+        assert "user_metadata.department" in fields
         
         # Test values for project
-        response = test_client.get("/api/v2/metadata/values?key=project")
+        response = test_client.get("/api/v2/metadata/values?key=user_metadata.project")
         assert response.status_code == 200
-        assert set(response.json()["values"]) == {"apollo", "zeus"}
+        values = [v["value"] for v in response.json()["values"]]
+        assert set(values) == {"apollo", "zeus"}
         
         # Test values for department
-        response = test_client.get("/api/v2/metadata/values?key=department")
+        response = test_client.get("/api/v2/metadata/values?key=user_metadata.department")
         assert response.status_code == 200
-        assert set(response.json()["values"]) == {"r&d", "marketing"}
+        values = [v["value"] for v in response.json()["values"]]
+        assert set(values) == {"r&d", "marketing"}
 
 def test_catalog_documents_listing(setup_qdrant_catalog, test_client):
     test_collection = setup_qdrant_catalog
@@ -104,18 +121,18 @@ def test_catalog_documents_listing(setup_qdrant_catalog, test_client):
         
         # Filter by project=apollo
         filter_str = json.dumps({"project": "apollo"})
-        response = test_client.get(f"/api/v2/documents?user_metadata_filter={filter_str}")
+        response = test_client.get("/api/v2/documents", params={"user_metadata_filter": filter_str})
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 2
         
         # Count project=apollo
-        response = test_client.get(f"/api/v2/documents/count?user_metadata_filter={filter_str}")
+        response = test_client.get("/api/v2/documents/count", params={"user_metadata_filter": filter_str})
         assert response.json()["count"] == 2
         
         # Filter by project=apollo and department=r&d
         filter_str = json.dumps({"project": "apollo", "department": "r&d"})
-        response = test_client.get(f"/api/v2/documents?user_metadata_filter={filter_str}")
+        response = test_client.get("/api/v2/documents", params={"user_metadata_filter": filter_str})
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 1
@@ -134,7 +151,8 @@ def test_retrieval_query(setup_qdrant_catalog, test_client):
         payload = {
             "query": "specs",
             "top_k": 5,
-            "user_metadata_filter": {"project": "apollo", "department": "r&d"}
+            "user_metadata_filter": {"project": "apollo", "department": "r&d"},
+            "metadata_filter_mode": "hard"
         }
         response = test_client.post("/api/v2/retrieval/query", json=payload)
         assert response.status_code == 200

@@ -1,6 +1,21 @@
+# Copyright (C) 2026 Andrea Marson (am.dev.75@gmail.com)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import pytest
 from fastapi.testclient import TestClient
-from retriva.main import app
+from retriva.config import settings
+from retriva.ingestion_api.main import app
 from retriva.indexing.qdrant_store import get_client, COLLECTION_NAME
 from qdrant_client.models import PointStruct, VectorParams, Distance
 import uuid
@@ -10,24 +25,19 @@ client = TestClient(app)
 @pytest.fixture
 def mock_data():
     q_client = get_client()
-    # Ensure collection exists
-    if not q_client.collection_exists(COLLECTION_NAME):
-        q_client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE),
-        )
-    
-    # Clean collection for predictable tests
-    q_client.delete(collection_name=COLLECTION_NAME, points_selector=uuid.uuid4().hex) # Hack to clear
-    # Wait, better way to clear:
-    # q_client.delete_collection(COLLECTION_NAME)
-    # q_client.create_collection(...)
+    # Clean and ensure collection exists for predictable tests
+    if q_client.collection_exists(COLLECTION_NAME):
+        q_client.delete_collection(COLLECTION_NAME)
+    q_client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=VectorParams(size=settings.embedding_dimension, distance=Distance.COSINE),
+    )
     
     # Upsert some test points
     points = [
         PointStruct(
             id=str(uuid.uuid4()),
-            vector=[0.9] * 384, # Very relevant to "space"
+            vector=[0.9] * settings.embedding_dimension, # Very relevant to "space"
             payload={
                 "doc_id": "doc1",
                 "source_path": "apollo.md",
@@ -38,7 +48,7 @@ def mock_data():
         ),
         PointStruct(
             id=str(uuid.uuid4()),
-            vector=[0.1] * 384, # Irrelevant to "space"
+            vector=[0.1] * settings.embedding_dimension, # Irrelevant to "space"
             payload={
                 "doc_id": "doc2",
                 "source_path": "gemini.md",
@@ -49,7 +59,7 @@ def mock_data():
         ),
         PointStruct(
             id=str(uuid.uuid4()),
-            vector=[0.05] * 384, # Very irrelevant to "space"
+            vector=[0.05] * settings.embedding_dimension, # Very irrelevant to "space"
             payload={
                 "doc_id": "doc3",
                 "source_path": "irrelevant.md",
