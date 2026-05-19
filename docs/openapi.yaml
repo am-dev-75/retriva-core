@@ -1,13 +1,13 @@
 openapi: 3.1.0
 info:
-  title: Retriva API
+  title: Retriva Core API
   description: |
-    Retriva provides a comprehensive set of APIs for document ingestion, retrieval, and integration with Retriva WebUI.
+    Retriva Core provides APIs for document ingestion, chunking, indexing,
+    retrieval, and OpenAI-compatible RAG chat completions.
 
-    The system consists of three main components:
-    * **Retriva Core (Ingestion)**: Handles data processing, chunking, and indexing.
-    * **Retriva Core (OpenAI API)**: Provides OpenAI-compatible endpoints for RAG.
-    * **Retriva Gateway**: Sits between Retriva WebUI and Retriva Core.
+    The Core runs as two processes:
+    * **Ingestion API** (port 8000): Document processing pipeline, metadata, jobs, artifacts.
+    * **OpenAI Chat API** (port 8001): OpenAI-compatible `/v1/chat/completions` for RAG.
   version: 1.0.0
   contact:
     name: Andrea Marson
@@ -18,23 +18,15 @@ info:
 
 servers:
   - url: http://localhost:8000
-    description: Retriva Core (Ingestion API)
+    description: Retriva Core — Ingestion API
   - url: http://localhost:8001
-    description: Retriva Core (OpenAI Chat API)
-  - url: http://localhost:8002
-    description: Retriva Gateway API
+    description: Retriva Core — OpenAI Chat API
 
 tags:
   - name: Ingestion v1 (legacy)
-    description: Document and data processing pipeline
-  - name: Chat
-    description: OpenAI-compatible retrieval and completion
-  - name: Gateway
-    description: Integration and synchronization with Retriva WebUI
-  - name: Gateway BFF
-    description: WebUI Backend-for-Frontend endpoints
+    description: Document and data processing pipeline (v1)
   - name: Jobs v1 (legacy)
-    description: Ingestion job management
+    description: Ingestion job management (v1)
   - name: Ingestion v2
     description: Generic multi-tool document ingestion (v2)
   - name: Jobs v2
@@ -45,6 +37,8 @@ tags:
     description: Metadata schema and values discovery (v2)
   - name: Retrieval v2
     description: Vector and metadata-filtered retrieval (v2)
+  - name: Chat
+    description: OpenAI-compatible retrieval and completion
   - name: Internal
     description: Debugging and observability endpoints
 
@@ -673,7 +667,7 @@ paths:
         "404":
           description: Artifact not found
 
-  /api/v2/capabilities:
+  /api/v2/artifacts/capabilities:
     get:
       tags: [Artifacts v2]
       summary: Get system capabilities and renderers
@@ -723,282 +717,12 @@ paths:
                     format: binary
                     description: Server-Sent Events stream
 
-  # --- Gateway API ---
-  /healthz:
-    get:
-      tags: [Gateway]
-      summary: Liveness probe
-      responses:
-        "200":
-          description: OK
-
-  /readyz:
-    get:
-      tags: [Gateway]
-      summary: Readiness probe
-      responses:
-        "200":
-          description: System ready
-        "503":
-          description: Service unavailable
-
-  /api/v1/sync:
+  # --- v1 PDF file upload ---
+  /api/v1/ingest/upload/pdf:
     post:
-      tags: [Gateway]
-      summary: Trigger manual synchronization cycle
-      responses:
-        "200":
-          description: Sync results
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SyncResult"
-
-  /api/v1/mappings:
-    get:
-      tags: [Gateway]
-      summary: List file mappings
-      responses:
-        "200":
-          description: List of mappings
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/MappingRecord"
-
-  /api/v1/chat/message:
-    post:
-      tags: [Gateway]
-      summary: Receive chat message webhook
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ChatMessagePayload"
-      responses:
-        "200":
-          description: Processing status
-
-  /api/v1/events:
-    post:
-      tags: [Gateway]
-      summary: Receive system events webhook
-      responses:
-        "200":
-          description: Event processed
-
-  /metrics:
-    get:
-      tags: [Gateway]
-      summary: Prometheus metrics
-      responses:
-        "200":
-          description: Plaintext metrics
-
-  # --- Gateway BFF API ---
-  /gateway/health:
-    get:
-      tags: [Gateway BFF]
-      summary: Get health status
-      operationId: getGatewayHealth
-      responses:
-        "200":
-          description: Health report
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HealthResponse"
-
-  /gateway/capabilities:
-    get:
-      tags: [Gateway BFF]
-      summary: Get Gateway capabilities
-      operationId: getGatewayCapabilities
-      responses:
-        "200":
-          description: Enabled features report
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CapabilitiesResponse"
-
-  /gateway/chat:
-    post:
-      tags: [Gateway BFF]
-      summary: Send a direct RAG chat message
-      operationId: sendGatewayChat
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ChatRequest"
-      responses:
-        "200":
-          description: WebUI friendly chat response or event stream
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  - type: object
-                    properties:
-                      id: { type: string }
-                      role: { type: string }
-                      content: { type: string }
-                      timestamp: { type: string }
-                      citations:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            id: { type: string }
-                            document_id: { type: string }
-                            filename: { type: string }
-                            text: { type: string }
-                  - type: string
-                    format: binary
-                    description: Server-Sent Events stream
-
-  /gateway/kbs:
-    get:
-      tags: [Gateway BFF]
-      summary: List knowledge bases
-      operationId: listGatewayKbs
-      responses:
-        "200":
-          description: KB list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/KnowledgeBase"
-    post:
-      tags: [Gateway BFF]
-      summary: Create a knowledge base
-      operationId: createGatewayKb
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/KnowledgeBase"
-      responses:
-        "200":
-          description: KB created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/KnowledgeBase"
-
-  /gateway/kbs/{kb_id}:
-    get:
-      tags: [Gateway BFF]
-      summary: Get knowledge base details
-      operationId: getGatewayKb
-      parameters:
-        - name: kb_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: KB details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/KnowledgeBase"
-        "404":
-          description: KB not found
-    patch:
-      tags: [Gateway BFF]
-      summary: Update knowledge base details
-      operationId: updateGatewayKb
-      parameters:
-        - name: kb_id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/KnowledgeBase"
-      responses:
-        "200":
-          description: KB updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/KnowledgeBase"
-    delete:
-      tags: [Gateway BFF]
-      summary: Delete knowledge base
-      operationId: deleteGatewayKb
-      parameters:
-        - name: kb_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: KB deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: string }
-
-  /gateway/ingestion/batches:
-    post:
-      tags: [Gateway BFF]
-      summary: Create ingestion batch
-      operationId: createGatewayBatch
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                metadata:
-                  type: object
-                  additionalProperties: {}
-      responses:
-        "200":
-          description: Ingestion batch created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  batch_id: { type: string }
-                  status: { type: string }
-                  files:
-                    type: array
-                    items: { type: object }
-                  metadata:
-                    type: object
-
-  /gateway/ingestion/batches/{batch_id}/files:
-    post:
-      tags: [Gateway BFF]
-      summary: Upload file to batch
-      operationId: uploadGatewayFileToBatch
-      parameters:
-        - name: batch_id
-          in: path
-          required: true
-          schema:
-            type: string
+      tags: [Ingestion v1 (legacy)]
+      summary: Ingest raw PDF file upload
+      operationId: ingestPdfUpload
       requestBody:
         required: true
         content:
@@ -1010,331 +734,66 @@ paths:
                 file:
                   type: string
                   format: binary
-                source_path:
-                  type: string
+                source_path: { type: string }
+                page_title: { type: string }
                 user_metadata:
                   type: string
-                  description: Optional JSON-encoded metadata string
-      responses:
-        "200":
-          description: File uploaded
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  filename: { type: string }
-                  source_path: { type: string }
-                  job_id: { type: string }
-                  status: { type: string }
-
-  /gateway/ingestion/batches/{batch_id}:
-    get:
-      tags: [Gateway BFF]
-      summary: Get batch status
-      operationId: getGatewayBatch
-      parameters:
-        - name: batch_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Batch status report
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  batch_id: { type: string }
-                  status: { type: string }
-                  files:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        filename: { type: string }
-                        source_path: { type: string }
-                        job_id: { type: string }
-                        status: { type: string }
-                  metadata:
-                    type: object
-
-  /gateway/documents:
-    get:
-      tags: [Gateway BFF]
-      summary: List KB documents
-      operationId: listGatewayDocuments
-      parameters:
-        - name: kb_id
-          in: query
-          required: false
-          schema:
-            type: string
-        - name: metadata_filter_mode
-          in: query
-          schema:
-            $ref: "#/components/schemas/MetadataFilterMode"
-            default: hard
-      responses:
-        "200":
-          description: Documents list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/DocumentResponse"
-
-  /gateway/documents/search:
-    post:
-      tags: [Gateway BFF]
-      summary: Discover and search documents
-      operationId: searchGatewayDocuments
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SearchRequest"
-      responses:
-        "200":
-          description: Search results
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/DocumentResponse"
-
-  /gateway/documents/filter:
-    post:
-      tags: [Gateway BFF]
-      summary: Filter documents (POST compat redirect)
-      operationId: filterGatewayDocuments
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SearchRequest"
-      responses:
-        "200":
-          description: Filter results
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/DocumentResponse"
-
-  /gateway/documents/{doc_id}:
-    get:
-      tags: [Gateway BFF]
-      summary: Get document details
-      operationId: getGatewayDocument
-      parameters:
-        - name: doc_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Document details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DocumentResponse"
-    delete:
-      tags: [Gateway BFF]
-      summary: Delete document
-      operationId: deleteGatewayDocument
-      parameters:
-        - name: doc_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Document deleted
-
-  /gateway/metadata/schema:
-    get:
-      tags: [Gateway BFF]
-      summary: Get metadata schema
-      operationId: getGatewayMetadataSchema
-      responses:
-        "200":
-          description: Metadata field structure
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MetadataSchemaResponse"
-
-  /gateway/metadata/values:
-    get:
-      tags: [Gateway BFF]
-      summary: Get metadata key values
-      operationId: getGatewayMetadataValues
-      parameters:
-        - name: key
-          in: query
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Key values
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MetadataValuesResponse"
-
-  /gateway/metadata/{field}/values:
-    get:
-      tags: [Gateway BFF]
-      summary: Get metadata field values (legacy/compat route)
-      operationId: getGatewayMetadataValuesCompat
-      parameters:
-        - name: field
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Key values
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MetadataValuesResponse"
-
-  /gateway/artifacts:
-    get:
-      tags: [Gateway BFF]
-      summary: List all artifacts
-      operationId: listGatewayArtifacts
-      responses:
-        "200":
-          description: List of artifacts
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { type: object }
-    post:
-      tags: [Gateway BFF]
-      summary: Create artifact generation job
-      operationId: createGatewayArtifact
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ArtifactRequest"
+                  description: JSON-encoded user metadata
       responses:
         "202":
-          description: Generation job accepted
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResponse"
 
-  /gateway/artifacts/{artifact_id}:
-    get:
-      tags: [Gateway BFF]
-      summary: Get artifact details/status
-      operationId: getGatewayArtifact
-      parameters:
-        - name: artifact_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Artifact status details
+  # --- v1 Delete by metadata ---
+  /api/v1/documents/metadata/filter:
     delete:
-      tags: [Gateway BFF]
-      summary: Delete artifact
-      operationId: deleteGatewayArtifact
-      parameters:
-        - name: artifact_id
-          in: path
-          required: true
-          schema:
-            type: string
+      tags: [Ingestion v1 (legacy)]
+      summary: Delete documents by metadata filter
+      operationId: deleteDocumentsByMetadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteMetadataRequest"
       responses:
-        "200":
-          description: Artifact deleted
-
-  /gateway/artifacts/{artifact_id}/content:
-    get:
-      tags: [Gateway BFF]
-      summary: Stream artifact rendered content
-      operationId: downloadGatewayArtifact
-      parameters:
-        - name: artifact_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Streaming file
-
-  /gateway/speech/transcriptions:
-    post:
-      tags: [Gateway BFF]
-      summary: Speech transcription placeholder
-      operationId: createGatewayTranscription
-      responses:
-        "501":
-          description: Not implemented
+        "204":
+          description: Chunks deleted successfully
 
   # --- Internal / Debug API ---
-  /internal/ingestion-tagging/{chat_id}:
+  /internal/profiler/log:
     get:
       tags: [Internal]
-      summary: Inspect ingestion context for a chat
-      parameters:
-        - name: chat_id
-          in: path
-          required: true
-          schema:
-            type: string
+      summary: Get recent profiler logs
+      operationId: getProfilerLogs
+      description: Available only when ENABLE_INTERNAL_PROFILER=true.
       responses:
         "200":
-          description: Context state
+          description: Recent structured profiler logs
+        "404":
+          description: Profiler is disabled
 
-  /internal/mappings/documents:
+  # --- Root ---
+  /:
     get:
       tags: [Internal]
-      summary: List all document mappings (internal)
+      summary: API root info
+      operationId: getRoot
       responses:
         "200":
-          description: List of records
-
-  /internal/mappings/documents/{owui_file_id}:
-    get:
-      tags: [Internal]
-      summary: Get mapping for a specific file
-      parameters:
-        - name: owui_file_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Mapping record
-
-  /internal/mappings/knowledge-bases:
-    get:
-      tags: [Internal]
-      summary: List knowledge base mappings
-      responses:
-        "200":
-          description: List of KB mappings
+          description: Basic API information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app: { type: string }
+                  version: { type: string }
+                  api_v1: { type: string }
+                  api_v2: { type: string }
 
 components:
   schemas:
@@ -1672,38 +1131,7 @@ components:
           type: array
           items: { type: object }
 
-    # --- Gateway Schemas ---
-    SyncResult:
-      type: object
-      properties:
-        ingested: { type: integer }
-        deleted: { type: integer }
-        failed: { type: integer }
-        retried: { type: integer }
-        skipped: { type: integer }
-        errors: { type: array, items: { type: string } }
-
-    MappingRecord:
-      type: object
-      properties:
-        owui_file_id: { type: string }
-        filename: { type: string }
-        retriva_doc_id: { type: string }
-        content_hash: { type: string }
-        status: { type: string }
-        created_at: { type: string }
-        updated_at: { type: string }
-
-    ChatMessagePayload:
-      type: object
-      required: [chat_id, message]
-      properties:
-        chat_id: { type: string }
-        message: { type: string }
-        kb_ids: { type: array, items: { type: string } }
-        file_ids: { type: array, items: { type: string } }
-
-    # --- Retriva Modern Schemas (Core & Gateway) ---
+    # --- Shared Schemas ---
     MetadataFilterOperator:
       type: string
       enum: [eq, neq, contains, in, exists]
@@ -1766,81 +1194,4 @@ components:
         is_discovery: { type: boolean, default: false }
         case_sensitive: { type: boolean, default: false }
 
-    HealthResponse:
-      type: object
-      properties:
-        status: { type: string, default: healthy }
-        version: { type: string, default: 0.1.0 }
 
-    CapabilitiesResponse:
-      type: object
-      properties:
-        chat: { type: boolean }
-        knowledge_bases: { type: boolean }
-        documents: { type: boolean }
-        ingestion: { type: boolean }
-        artifacts: { type: boolean }
-        folder_upload: { type: boolean }
-        speech_input: { type: boolean }
-        auth: { type: boolean }
-
-    KnowledgeBase:
-      type: object
-      required: [id, name]
-      properties:
-        id: { type: string }
-        name: { type: string }
-        description: { type: string }
-
-    ChatRequest:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-        kb_ids:
-          type: array
-          items: { type: string }
-          default: [default]
-        metadata_filters:
-          type: array
-          items:
-            $ref: "#/components/schemas/MetadataFilter"
-        metadata_filter_mode:
-          $ref: "#/components/schemas/MetadataFilterMode"
-          default: soft
-        stream: { type: boolean, default: false }
-        filters:
-          type: object
-          description: "[DEPRECATED] Legacy search filter dict."
-
-    SearchRequest:
-      type: object
-      properties:
-        query: { type: string }
-        kb_ids:
-          type: array
-          items: { type: string }
-          default: [default]
-        metadata_filters:
-          type: array
-          items:
-            $ref: "#/components/schemas/MetadataFilter"
-        metadata_filter_mode:
-          $ref: "#/components/schemas/MetadataFilterMode"
-          default: soft
-        limit: { type: integer, default: 50 }
-        is_discovery: { type: boolean, default: false }
-        case_sensitive: { type: boolean, default: false }
-        filters:
-          type: object
-          description: "[DEPRECATED] Legacy search filter dict."
-
-    ArtifactRequest:
-      type: object
-      required: [artifact_type, format]
-      properties:
-        artifact_type: { type: string }
-        format: { type: string }
-        parameters:
-          type: object
-          additionalProperties: {}
