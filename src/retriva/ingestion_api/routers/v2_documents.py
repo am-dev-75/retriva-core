@@ -444,8 +444,14 @@ async def search_documents_v2(request: DocumentSearchRequest):
         logger.info(
             f"[{profiler.request_id}] document_search_requested: query='{request.query[:50]}...', "
             f"mode={request.metadata_filter_mode}, "
-            f"filters_count={len(request.metadata_filters)}"
+            f"filters_count={len(request.metadata_filters)}, "
+            f"is_discovery={request.is_discovery}"
         )
+        if request.is_discovery:
+            logger.debug(
+                f"[{profiler.request_id}] discovery mode: metadata_filter_mode is ignored "
+                f"(tags are always applied as strict filters)"
+            )
         
         client = get_client()
         filters = [f.model_dump() for f in request.metadata_filters]

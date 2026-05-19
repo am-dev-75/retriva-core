@@ -530,8 +530,16 @@ def search_documents(
                 
             kb_filter = Filter(should=kb_should)
             must_conditions.append(kb_filter)
-        
-        # Build discovery filter for KBs only; we'll match title/path in Python
+
+        # Apply metadata_filters (tags) as strict Qdrant conditions.
+        # In discovery mode there is no soft/hard distinction — tags always
+        # act as hard filters (only matching documents are returned).
+        if metadata_filters:
+            tag_filter = build_qdrant_filter(metadata_filters)
+            if tag_filter and tag_filter.must:
+                must_conditions.extend(tag_filter.must)
+            logger.info(f"[{rid}] discovery_metadata_filters_applied: count={len(metadata_filters)}")
+
         discovery_filter = Filter(must=must_conditions) if must_conditions else None
         
         try:
@@ -556,6 +564,12 @@ def search_documents(
                     if pattern.search(filename):
                         doc_id = payload.get("doc_id")
                         if doc_id and doc_id not in unique_docs:
+                            # Build match reasons
+                            reasons = ["wildcard_match"]
+                            if metadata_filters:
+                                for f in metadata_filters:
+                                    reasons.append(f"metadata:{f.get('field', 'unknown')}")
+
                             unique_docs[doc_id] = {
                                 "id": doc_id,
                                 "doc_id": doc_id,
@@ -569,7 +583,7 @@ def search_documents(
                                 "ingestion_status": payload.get("ingestion_status") or "completed",
                                 "created_at": payload.get("created_at") or "",
                                 "ingestion_timestamp": payload.get("ingestion_timestamp"),
-                                "match_reasons": ["wildcard_match"]
+                                "match_reasons": reasons
                             }
                     
                     if len(unique_docs) >= limit:
