@@ -18,15 +18,19 @@
         - [Data Sovereignty](#data-sovereignty)
     - [License notes](#license-notes)
   - [Architecture](#architecture)
+    - [Introduction](#introduction-1)
     - [Overview](#overview)
-    - [Open WebUI (OWUI)](#open-webui-owui)
-      - [OWUI adapter](#owui-adapter)
-    - [Retriva core](#retriva-core)
+    - [Retriva WebUI](#retriva-webui)
+      - [Document Ingestion](#document-ingestion)
+      - [Interacting with ingested documents](#interacting-with-ingested-documents)
+        - [Document Discovery](#document-discovery)
+        - [Chat and Q\&A (RAG)](#chat-and-qa-rag)
+    - [Retriva Gateway](#retriva-gateway)
+    - [Retriva Core](#retriva-core)
     - [End-to-End Flow Summary](#end-to-end-flow-summary)
       - [Upload-only flow](#upload-only-flow)
       - [Question flow](#question-flow)
-  - [Implementation](#implementation)
-    - [Software architecture](#software-architecture)
+    - [Implementation](#implementation)
     - [API](#api)
   - [Quick Start](#quick-start)
     - [Use in tandem with Open WebUI (optional)](#use-in-tandem-with-open-webui-optional)
@@ -107,68 +111,66 @@ Why did I choose the Apache License 2.0? Because this license, combined with cer
 
 ## Architecture
 
+### Introduction
+Basically, to use a RAG system you need to
+* Firstly, **ingest** information into it.Ingestion is the process of extracting information from documents and storing it in a way that can be searched and retrieved. This documents — which are usually files — are sually, are ingested in separate Knowledge Bases (KB) that users can name and manage. Therefore, you can think of KBs as specific-purpose databases in which you can store whatever information you want.
+* When you want to interact with your KBs, you query them in natural language for retrieving information, elaborating the data they containm and so on. In this regard, think about Retriva as a tailored version of ChatGPT knowing **your** KBs.
+
 ### Overview
 
-Retriva is a retrieval‑augmented generation (RAG) platform designed to integrate seamlessly with Open WebUI (OWUI) while preserving a clean separation of concerns between user interaction, ingestion orchestration, and LLM execution.
+Retriva is designed to be preserve a clean separation of concerns between user interaction, ingestion orchestration, and LLM execution. The following diagram illustrates its architecture:
 
-The final logical architecture should look like ![this:](docs/assets/Retriva_target_logic_architecture.drawio.png)
+![](docs/assets/Retriva_software_architecture.drawio.png)
 
 At a high level, the architecture consists of four main components:
 
-- **Open WebUI (OWUI)** – the user-facing interface
-- **Thin Adapter** – the control plane and policy enforcement layer
+- **Retriva WebUI** – the user-facing interface
+- **Retriva Gateway** – sits between Retriva WebUI and Retriva Core, providing a thin adapter layer between the frontend and the backend, which abstracts the backend API.
 - **Retriva Core** – ingestion, retrieval, and document management
-- **LLM Providers** – external or internal model backends
+- **LLM Providers** – external LLM servers, such as OpenRouter, Ollama, LM Studio, or others. LLMs are used for embeddings and RAG chat completions.
 
-### Open WebUI (OWUI)
+### Retriva WebUI
 
-Open WebUI is responsible for:
+Retriva WebUI is the user-facing web interface that allows users to interact with their documents and knowledge bases through conversational AI (RAG).
 
-- User authentication and chat sessions
-- File uploads
-- Knowledge Base (KB) management
-- UI-level orchestration (search planning, follow-up suggestions, streaming reconciliation)
+#### Document Ingestion
+The **Ingestion page** is used to add new files and documents to the system. Users can:
+* **Select Target Knowledge Base**: Specify which Knowledge Base the uploaded documents should belong to. If no Knowledge Base is selected, the documents will be uploaded to the `default` Knowledge Base.
+* **Upload Files & Folders**: Upload individual files or entire directory structures of supported formats (PDF, DOCX, XLSX, Markdown, etc.).
+* **Attach Ingestion Metadata (optional)**: Define key-value pairs (e.g., `project: Apollo`) to tag the uploaded files. This metadata is applied at document level during ingestion and automatically propagated to all generated text chunks. These optional, user-defined metadata can be later used to filter documents during catalog exploration and RAG retrieval.
+* **Monitor Ingestion Jobs**: Track the real-time status (queued, processing, ready, or failed) of current and historical ingestion batches.
 
-OWUI always communicates using OpenAI-compatible APIs, even for non-user actions such as uploads or internal planning. As a result, OWUI may emit multiple chat-completion requests for a single user action. These requests are control-plane artifacts, not direct expressions of user intent.
-OWUI remains intentionally unaware of Retriva internals.
+#### Interacting with ingested documents
+Users can interact with ingested documents through two primary interfaces: **Document Discovery** and **Chat** (RAG).
 
-#### OWUI adapter
+##### Document Discovery
+The **Documents** page allows users to search, filter, list, and manage all ingested documents across different Knowledge Bases. Users can:
+* Perform search queries on filenames, source paths, and metadata tags (as a matter of fact, filenames and source paths are also stored as metadata tags).
+* Filter documents by specific metadata properties.
+* Delete documents and their associated index chunks.
 
-To interface Open WebUI with Retriva, an [adapter](https://github.com/am-dev-75/open-webui_retriva-adapter) is needed. .
+##### Chat and Q&A (RAG)
+The **Chat** page enables natural language conversations with the retrieval-augmented generation pipeline. When submitting a query, users can configure:
+* **Knowledge Base Selection**: Restrict retrieval to specific knowledge bases (e.g., `default` or project-specific KBs).
+* **Metadata Filters**: Define custom key-value constraints (e.g., `user_metadata.project = apollo`) to target specific subsets of files.
+* **Metadata Filtering Mode**: Choose how strictly the metadata filters should be applied during vector retrieval:
+  * **Hard Mode (`hard`)**: Filters are treated as mandatory exclusion constraints. Only chunks that strictly match all specified metadata filters are considered for retrieval and reranking. Any chunk that does not match is completely excluded.
+  * **Soft Mode (`soft`)**: Filters act as ranking and recall boost signals. Chunks matching the metadata filters are prioritized and boosted in the final scores, but semantically relevant documents that do not match the filter can still be retrieved to ensure comprehensive context.
 
-The adapter sits between OWUI and Retriva and is the architectural keystone of the system.
-Its responsibilities include:
+### Retriva Gateway
 
-* Intent classification
-  * Distinguishes human-authored questions from OWUI-generated control prompts
-  * Ensures uploads and directives do not trigger unintended LLM calls
-* Directive handling
-  * Implements chat-based ingestion directives (e.g. `@@ingestion_tag_start`, `@@ingestion_tag_stop`)
-  * Maintains per-chat, ephemeral ingestion context
-* Ingestion orchestration
-  * Detects uploads indirectly via OWUI’s Files API (out-of-band)
-  * Performs asynchronous ingestion through polling
-  * Applies user-provided metadata at ingestion time
-* Policy enforcement
-  * Ensures upload-only turns never reach the LLM
-  * Guarantees deterministic behavior regardless of OWUI’s internal orchestration loops
-* Observability
-  * Maintains mapping stores:
-    * OWUI Knowledge Bases ↔ Retriva kb_ids
-    * OWUI file IDs ↔ Retriva doc_ids
-  * Exposes gated, internal debug endpoints (`/internal/...`) for inspection
+Retriva Gateway serves as the control plane and Backend-for-Frontend (BFF) layer, sitting between Retriva WebUI and Retriva Core. It handles orchestration, WebUI integration, and policy enforcement.
 
-Crucially, the adapter:
+Its key capabilities include:
+* **BFF (Backend-for-Frontend) API**: Exposes tailored endpoints for the WebUI (e.g. `/gateway/kbs`, `/gateway/documents`, `/gateway/chat`, and `/gateway/artifacts`), abstracting the complexity of the underlying Core services.
+* **Ingestion Orchestration**: Coordinates multi-step, asynchronous document ingestion batches, handles file uploads, tracks job progress, and applies user-provided metadata at ingestion time.
+* **Intent Classification & Guardrails**: Inspects incoming chat requests to distinguish actual user messages from WebUI control loops or upload notifications. It ensures that system tasks do not trigger unnecessary LLM completions.
+* **Identifier Mapping & Sync**: Maintains persistent mappings between WebUI-specific identifiers (such as front-end file IDs or knowledge base IDs) and Core-internal identifiers (such as `doc_id` and Qdrant collection tags).
+* **Retrieval & Citation Mapping**: Translates chunk-level vector search results and citations returned by Retriva Core back into UI-friendly references containing the original source filenames and logic paths.
 
-- Never calls the LLM directly
-- Never forwards user credentials
-- Never interprets OWUI control prompts as user intent
+### Retriva Core
 
-It is a pure control plane, not a model gateway.
-
-### Retriva core
-
-Retriva is the data plane and system of record for:
+Retriva Core is the data plane and system of record for:
 
 * Document ingestion
 * Chunking and embedding
@@ -177,49 +179,44 @@ Retriva is the data plane and system of record for:
 * Retrieval and ranking
 * LLM request construction
 
-Retriva:
+Retriva Core:
 
-* Receives ingestion jobs from the adapter
+* Receives ingestion jobs from Retriva Gateway
 * Stores documents using its own identifiers (doc_id)
 * Applies metadata exactly as provided at ingestion time
-* Executes retrieval and calls the LLM only when explicitly requested by the adapter
+* Executes retrieval and calls the LLM when requested by Retriva Gateway
 
-Retriva treats every upload as a distinct document, even if file content is identical. This preserves user intent, document lifecycle independence, and metadata correctness.
+Retriva Core treats every upload as a distinct document, even if file content is identical. This preserves user intent, document lifecycle independence, and metadata correctness.
 
 ### End-to-End Flow Summary
 
 #### Upload-only flow
 
 ```
-User → OWUI (upload)
-OWUI → Adapter (chat + control prompts)
-Adapter → Synthetic acknowledgement
-Adapter → OWUI Files API (polling)
-Adapter → Retriva ingestion API
+User → WebUI (upload file)
+WebUI → Gateway (create batch & upload file)
+Gateway → Core Ingestion API (upload & start job)
 ```
 
 #### Question flow
 
 ```
-User → OWUI (question)
-OWUI → Adapter
-Adapter → Retriva
-Retriva → LLM
+User → WebUI (ask question)
+WebUI → Gateway (send chat request)
+Gateway → Core OpenAI Chat API (chat completions with RAG)
+Core → LLM Provider
 ```
 
 At no point do uploads implicitly cause LLM calls.
 
-## Implementation
-
-### Software architecture
-
-![](docs/assets/Retriva_software_architecture.drawio.png)
+### Implementation
 
 See [this page](docs/implementation.md) for the implementation details.
 
 ### API
 
-See [this page](./docs/api.md) for the API documentation.
+See [this page](./docs/openapi.yaml) for the documentation of Retriva Core's API.
+Gateway's API documentation is [here](TBD).
 
 ## Quick Start
 
@@ -232,7 +229,7 @@ See [this page](./docs/api.md) for the API documentation.
  / _` |/ _` | '__/ _` | '_ \| __| 
 | (_| | (_| | | | (_| | | | | |_  
  \__, |\__,_|_|  \__,_|_| |_|\__| 
-    |_|                 
+    |_|               
 
 Version: 1.17.1, build: eabee371
 Access web UI at http://localhost:6333/dashboard
