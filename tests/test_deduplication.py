@@ -284,6 +284,11 @@ def test_case_f_same_file_different_kb(mock_get_client, mock_upsert):
     from retriva.ingestion_api.main import app
 
     with TestClient(app) as client:
+        # Phase 2: KB enforcement requires the target KBs to exist before
+        # ingestion; create them via the public API.
+        for kb_id in ("kb_alpha", "kb_beta"):
+            create_resp = client.post("/api/v2/kbs", json={"kb_id": kb_id, "name": kb_id})
+            assert create_resp.status_code in (201, 409), create_resp.text
         r1 = _upload(client, kb_id="kb_alpha")
         r2 = _upload(client, kb_id="kb_beta")
 

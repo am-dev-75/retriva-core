@@ -18,6 +18,7 @@ v2 retrieval endpoints.
 
 from fastapi import APIRouter, HTTPException, status
 from retriva.ingestion_api.schemas_v2 import RetrievalRequest, RetrievalResponse
+from retriva.ingestion_api.deps import require_kbs_exist
 from retriva.registry import CapabilityRegistry
 from retriva.logger import get_logger
 from retriva.profiler import Profiler
@@ -33,6 +34,8 @@ router = APIRouter(prefix="/api/v2/retrieval", tags=["v2-retrieval"])
 @router.post("/query", response_model=RetrievalResponse)
 async def search_documents(request: RetrievalRequest):
     """Retrieve chunks based on vector similarity, with advanced metadata filtering and modes."""
+    # KB enforcement (SDD): retrieval requires a non-empty, validated kb_ids list.
+    require_kbs_exist(request.kb_ids, allow_empty=False)
     start_time = time.time()
     
     # Observability: Log request receipt

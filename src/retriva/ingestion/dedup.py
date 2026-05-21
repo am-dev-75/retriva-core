@@ -184,6 +184,29 @@ class DeduplicationStore:
                     return
         raise KeyError(f"DocRecord not found for doc_id={doc_id}")
 
+    # -- KB cascade ---------------------------------------------------------
+
+    def delete_by_kb_id(self, kb_id: str) -> int:
+        """Remove every record whose ``kb_id`` matches.
+
+        Returns the number of records removed. Idempotent — calling with a
+        ``kb_id`` that has no matching records returns 0 and rewrites the
+        catalog unchanged.
+
+        Part of the KB cascade-on-delete (SDD Phase 3). Invoked *after* the
+        Qdrant points have been deleted, so the dedup catalog never points
+        at non-existent points.
+        """
+        with self._lock:
+            data = self._read_raw()
+            records = data.get("records", [])
+            kept = [r for r in records if r.get("kb_id") != kb_id]
+            removed = len(records) - len(kept)
+            if removed:
+                data["records"] = kept
+                self._write_raw(data)
+            return removed
+
     # -- Testing support ----------------------------------------------------
 
     def clear_all(self) -> None:

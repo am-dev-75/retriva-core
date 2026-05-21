@@ -307,6 +307,60 @@ def delete_chunks_by_source_path(client: QdrantClient, source_path: str):
         ),
     )
 
+
+def delete_chunks_by_kb_id(client: QdrantClient, kb_id: str) -> int:
+    """Delete every point in the collection carrying the given ``kb_id``.
+
+    Used by the KB cascade-on-delete (SDD Phase 3). The function:
+
+    1. Scrolls the collection with a ``kb_id`` filter to count how many
+       points will be removed (best-effort, capped scroll). The count is
+       returned for logging and for tests; it is *not* a precondition for
+       the delete itself.
+    2. Issues a single filtered ``client.delete`` call. Qdrant performs the
+       delete server-side; no fan-out by point id is required.
+
+    Returns the number of points observed during the pre-count scroll. The
+    Qdrant delete is unconditional and runs even if the pre-count is 0
+    (idempotent — Qdrant treats "no matching points" as a no-op).
+    """
+    rid = _get_req_id()
+    kb_filter = Filter(
+        must=[
+            FieldCondition(key="kb_id", match=MatchValue(value=kb_id))
+        ]
+    )
+
+    # Best-effort count via a bounded scroll. We do not iterate to completion;
+    # the precise number matters for observability, not correctness.
+    observed = 0
+    try:
+        hits, _ = client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=kb_filter,
+            limit=10_000,
+            with_payload=False,
+            with_vectors=False,
+        )
+        observed = len(hits)
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning(
+            f"[{rid}] kb_delete_precount_failed: kb_id={kb_id} reason={exc!r}"
+        )
+
+    logger.info(
+        f"[{rid}] kb_delete_points_started: kb_id={kb_id} observed_points={observed}"
+    )
+    client.delete(
+        collection_name=COLLECTION_NAME,
+        points_selector=kb_filter,
+    )
+    logger.info(
+        f"[{rid}] kb_delete_points_completed: kb_id={kb_id} observed_points={observed}"
+    )
+    return observed
+
+
 def update_payload_by_doc_id(
     client: QdrantClient,
     doc_id: str,

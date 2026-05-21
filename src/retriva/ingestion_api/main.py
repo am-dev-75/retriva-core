@@ -15,8 +15,9 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from retriva.ingestion_api.routers import ingest, ingest_HTML, ingest_image, ingest_text, ingest_mediawiki, ingest_pdf, ingest_markdown, jobs, documents
-from retriva.ingestion_api.routers import v2_documents, v2_jobs, v2_artifacts, v2_discovery, v2_metadata, v2_retrieval
+from retriva.ingestion_api.routers import v2_documents, v2_jobs, v2_artifacts, v2_discovery, v2_metadata, v2_retrieval, v2_kbs
 from retriva.indexing.qdrant_store import init_collection, get_client
+from retriva.domain.kb import seed_default_kb
 from retriva.logger import get_logger
 
 logger = get_logger(__name__)
@@ -30,6 +31,14 @@ async def lifespan(app: FastAPI):
         init_collection(client)
     except Exception as e:
         logger.error(f"Failed to initialize Qdrant during startup: {e}")
+
+    # Seed the KB registry (idempotent). Logged-and-continued on failure so
+    # startup behavior is preserved; the Phase 2 KB API surface will report a
+    # clear error if the registry is unavailable at request time.
+    try:
+        seed_default_kb()
+    except Exception as e:
+        logger.error(f"Failed to seed default KB during startup: {e}")
 
     # Load extensions (no-op if RETRIVA_EXTENSIONS is empty)
     from retriva.registry import CapabilityRegistry
@@ -73,3 +82,4 @@ app.include_router(v2_jobs.router)
 app.include_router(v2_artifacts.router)
 app.include_router(v2_metadata.router)
 app.include_router(v2_retrieval.router)
+app.include_router(v2_kbs.router)

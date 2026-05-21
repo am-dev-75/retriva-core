@@ -97,6 +97,10 @@ class DocumentIngestRequestV2(BaseModel):
             "Ignored if the backend is not registered."
         ),
     )
+    kb_id: str = Field(
+        "default",
+        description="Knowledge base id to ingest into. Must exist in the registry.",
+    )
 
     @field_validator("user_metadata")
     @classmethod

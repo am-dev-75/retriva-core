@@ -53,6 +53,7 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue
 from retriva.ingestion.normalize import normalize_text
 from retriva.ingestion_api.job_manager import CancellationError, JobManager
 from retriva.ingestion_api.schemas import UserMetadataValidationError, validate_user_metadata, DeleteMetadataRequest
+from retriva.ingestion_api.deps import require_kb_exists, require_kbs_exist
 from retriva.ingestion_api.schemas_v2 import (
     DocumentIngestRequestV2,
     IngestResponseV2,
@@ -435,6 +436,9 @@ async def search_documents_v2(request: DocumentSearchRequest):
     Search for unique documents based on semantic query and metadata filters.
     Returns document-level results with match reasons.
     """
+    # KB enforcement (SDD): every kb_id must exist; empty list → "all KBs"
+    # (existing semantics preserved).
+    require_kbs_exist(request.kb_ids, allow_empty=True)
     start_time = time.time()
     
     try:
@@ -502,7 +506,9 @@ async def ingest_document_v2(
     background_tasks: BackgroundTasks,
 ) -> IngestResponseV2:
     """Generic multi-parser ingestion (JSON body with ``source_uri``)."""
-    logger.debug(f"v2 ingest request: source_uri={payload.source_uri}")
+    # KB enforcement (SDD): unknown kb_id → 404 before any work is scheduled.
+    require_kb_exists(payload.kb_id)
+    logger.debug(f"v2 ingest request: source_uri={payload.source_uri} kb_id={payload.kb_id}")
     manager = JobManager()
     job = manager.create_job(source=payload.source_uri, job_type="v2_document")
     background_tasks.add_task(
@@ -512,6 +518,7 @@ async def ingest_document_v2(
         payload.user_metadata,
         payload.parser_hint,
         job.id,
+        kb_id=payload.kb_id,
         # No size/status/created_at for generic ingest (will use defaults)
     )
     return IngestResponseV2(
@@ -540,6 +547,8 @@ async def upload_document_v2(
     On duplicate (same kb_id + SHA-256): merges metadata/paths, patches
     Qdrant payloads, returns status='already_exists' or 'metadata_updated'.
     """
+    # KB enforcement (SDD): unknown kb_id → 404 before any I/O.
+    require_kb_exists(kb_id)
     # -- 1. Parse metadata --------------------------------------------------
     parsed_metadata = None
     if user_metadata:
