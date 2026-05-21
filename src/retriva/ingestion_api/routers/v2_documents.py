@@ -568,7 +568,7 @@ async def upload_document_v2(
 
     # -- 3. Dedup lookup ----------------------------------------------------
     dedup_store = DeduplicationStore()
-    existing = dedup_store.get_by_hash(kb_id, content_hash)
+    existing = dedup_store.get_by_hash(kb_id, content_hash, collection_name=COLLECTION_NAME)
 
     if existing is not None:
         # ── Duplicate path ──────────────────────────────────────────────────
@@ -641,6 +641,7 @@ async def upload_document_v2(
     record = DocRecord(
         doc_id=doc_id,
         kb_id=kb_id,
+        collection_name=COLLECTION_NAME,
         content_hash=content_hash,
         content_size=content_size,
         mime_type=content_type,

@@ -75,11 +75,12 @@ class ParsedDocument(BaseModel):
 class DocRecord(BaseModel):
     """Per-KB document catalog entry — the source of truth for deduplication.
 
-    Stored in the DeduplicationStore keyed by (kb_id, content_hash).
+    Stored in the DeduplicationStore keyed by (kb_id, content_hash, collection_name).
     """
 
     doc_id: str
     kb_id: str
+    collection_name: str = "retriva_chunks"
     content_hash: str
     content_hash_algorithm: str = "sha256"
     content_size: int

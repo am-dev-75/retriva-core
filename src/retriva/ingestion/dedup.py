@@ -17,9 +17,9 @@ Content-hash deduplication for v2 ingestion.
 
 Provides:
   - ContentHasher: compute SHA-256 over raw file bytes.
-  - DeduplicationStore: JSON-file-based catalog keyed by (kb_id, content_hash).
+  - DeduplicationStore: JSON-file-based catalog keyed by (kb_id, content_hash, collection_name).
 
-Deduplication key: (kb_id, content_hash)
+Deduplication key: (kb_id, content_hash, collection_name)
 doc_id format:     "doc_" + sha256(kb_id + ":" + hex_digest)[:32]
 """
 
@@ -103,12 +103,15 @@ class DeduplicationStore:
 
     # -- Public API ---------------------------------------------------------
 
-    def get_by_hash(self, kb_id: str, content_hash: str) -> Optional[DocRecord]:
-        """Look up a document by (kb_id, content_hash). Returns None if not found."""
+    def get_by_hash(self, kb_id: str, content_hash: str, collection_name: str = "retriva_chunks") -> Optional[DocRecord]:
+        """Look up a document by (kb_id, content_hash, collection_name). Returns None if not found."""
         with self._lock:
             data = self._read_raw()
             for rec in data.get("records", []):
-                if rec.get("kb_id") == kb_id and rec.get("content_hash") == content_hash:
+                rec_collection = rec.get("collection_name", "retriva_chunks")
+                if (rec.get("kb_id") == kb_id
+                        and rec.get("content_hash") == content_hash
+                        and rec_collection == collection_name):
                     return DocRecord(**rec)
         return None
 
@@ -126,10 +129,14 @@ class DeduplicationStore:
         with self._lock:
             data = self._read_raw()
             for rec in data.get("records", []):
-                if rec.get("kb_id") == record.kb_id and rec.get("content_hash") == record.content_hash:
+                rec_collection = rec.get("collection_name", "retriva_chunks")
+                if (rec.get("kb_id") == record.kb_id
+                        and rec.get("content_hash") == record.content_hash
+                        and rec_collection == record.collection_name):
                     raise ValueError(
                         f"DocRecord already exists: kb_id={record.kb_id}, "
-                        f"content_hash={record.content_hash}"
+                        f"content_hash={record.content_hash}, "
+                        f"collection_name={record.collection_name}"
                     )
             data.setdefault("records", []).append(record.model_dump())
             self._write_raw(data)

@@ -94,7 +94,7 @@ def create_image_chunks(document: ParsedDocument, ingestion_timestamp: str = Non
         
         chunk_id = hashlib.md5(f"{document.canonical_doc_id}_img_{idx}".encode("utf-8")).hexdigest()
         meta = ChunkMetadata(
-            doc_id=document.canonical_doc_id,
+            doc_id=document.doc_id or document.canonical_doc_id,
             source_path=document.source_path,
             page_title=document.page_title,
             section_path="",
