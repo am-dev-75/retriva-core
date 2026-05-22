@@ -16,9 +16,14 @@
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Ensure src is in the python path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+project_root = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+# Force load the .env from the project root BEFORE importing settings
+load_dotenv(project_root / ".env")
 
 from qdrant_client import QdrantClient
 from retriva.config import settings

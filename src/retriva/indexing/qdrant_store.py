@@ -289,19 +289,19 @@ def search_chunks(
         return [res["payload"] for res in final_results]
 
 
-def delete_chunks_by_source_path(client: QdrantClient, source_path: str):
+def delete_chunks_by_doc_id(client: QdrantClient, doc_id: str):
     """
-    Delete all chunks (points) in Qdrant that belong to the given source_path.
+    Delete all chunks (points) in Qdrant that belong to the given doc_id.
     """
     rid = _get_req_id()
-    logger.info(f"[{rid}] Deleting chunks for source_path: {source_path}")
+    logger.info(f"[{rid}] Deleting chunks for doc_id: {doc_id}")
     client.delete(
         collection_name=COLLECTION_NAME,
         points_selector=Filter(
             must=[
                 FieldCondition(
-                    key="source_path",
-                    match=MatchValue(value=source_path),
+                    key="doc_id",
+                    match=MatchValue(value=doc_id),
                 )
             ]
         ),

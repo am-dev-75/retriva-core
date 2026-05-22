@@ -40,7 +40,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Respo
 from retriva.config import settings
 from retriva.domain.models import CanonicalRecord, ParsedDocument
 from retriva.indexing.qdrant_store import (
-    get_client, upsert_chunks, delete_chunks_by_source_path,
+    get_client, upsert_chunks, delete_chunks_by_doc_id,
     delete_chunks_by_metadata, update_payload_by_doc_id, COLLECTION_NAME,
     list_documents as list_documents_store,
     count_documents as count_documents_store,
@@ -719,13 +719,13 @@ async def delete_document_v2(doc_id: str):
     client = get_client()
     
     try:
-        # Check if any chunks exist for this source_path
+        # Check if any chunks exist for this doc_id
         hits, _ = client.scroll(
             collection_name=COLLECTION_NAME,
             scroll_filter=Filter(
                 must=[
                     FieldCondition(
-                        key="source_path",
+                        key="doc_id",
                         match=MatchValue(value=doc_id),
                     )
                 ]
@@ -739,7 +739,7 @@ async def delete_document_v2(doc_id: str):
             logger.info(f"document not present; skipping doc_id={doc_id} (v2)")
             return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-        delete_chunks_by_source_path(client, doc_id)
+        delete_chunks_by_doc_id(client, doc_id)
         logger.info(f"retriva_deleted doc_id={doc_id} (v2)")
         return Response(status_code=status.HTTP_204_NO_CONTENT)
         

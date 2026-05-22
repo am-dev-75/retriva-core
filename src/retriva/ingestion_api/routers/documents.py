@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from fastapi import APIRouter, status, Response
-from retriva.indexing.qdrant_store import get_client, delete_chunks_by_source_path, delete_chunks_by_metadata, COLLECTION_NAME
+from retriva.indexing.qdrant_store import get_client, delete_chunks_by_doc_id, delete_chunks_by_metadata, COLLECTION_NAME
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from retriva.logger import get_logger
 from retriva.ingestion_api.schemas import DeleteMetadataRequest
@@ -34,14 +34,14 @@ async def delete_document(doc_id: str):
     client = get_client()
     
     try:
-        # Check if any chunks exist for this source_path
+        # Check if any chunks exist for this doc_id
         # We use scroll with limit 1 as a lightweight existence check
         hits, _ = client.scroll(
             collection_name=COLLECTION_NAME,
             scroll_filter=Filter(
                 must=[
                     FieldCondition(
-                        key="source_path",
+                        key="doc_id",
                         match=MatchValue(value=doc_id),
                     )
                 ]
@@ -55,7 +55,7 @@ async def delete_document(doc_id: str):
             logger.info(f"document not present; skipping doc_id={doc_id}")
             return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-        delete_chunks_by_source_path(client, doc_id)
+        delete_chunks_by_doc_id(client, doc_id)
         logger.info(f"retriva_deleted doc_id={doc_id}")
         return Response(status_code=status.HTTP_204_NO_CONTENT)
         
