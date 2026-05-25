@@ -41,11 +41,19 @@
 
 Retriva is a conversational AI agent. It is built to provide users with accurate and relevant information by leveraging the power of Retrieval Augmented Generation (RAG).  It is designed for enterprise use cases where data privacy and security are of utmost importance.
 
+As described in more detail in the [Architecture section](#architecture), Retriva consists of three main components, which have separate repositories:
+
+- [Retriva WebUI](https://github.com/am-dev-75/retriva-webui)
+- [Retriva Gateway](https://github.com/am-dev-75/retriva-gateway)
+- [Retriva Core](https://github.com/am-dev-75/retriva-core)
+
 For more details abouth the birth of the project, please see also [Retriva Documentation](https://github.com/am-dev-75/retriva-docs).
 
-### Features and design principles
+### License notes
 
-#### Key features
+Why did I choose the Apache License 2.0? Because this license, combined with certain specific design choices, allows for the creation of Retriva extensions without being required to release them as source code. No one knows if or how the project will evolve. If anyone were ever to use it as a starting point for developing a real product, I believe that the ability to extend it permissively while still remaining connected to the main repository for core functionality is a significant advantage.
+
+## Features
 
 * OpenAI-compatible chat API
 * Asynchronous, resilient ingestion (proprietary streaming API)
@@ -57,57 +65,90 @@ For more details abouth the birth of the project, please see also [Retriva Docum
 * Document creation API supporting the most common document formats such as PDF, DOCX, XLSX, ODT, ODS, ODP, and Markdown.
 * LangChain-free
 * Debug-only internal observability endpoints
-* Seamless integration with [Open WebUI](https://github.com/open-webui/open-webui)
-  * To enable this, use
-    * This container: [Open WebUI for Retriva](https://github.com/am-dev-75/open-webui_retriva)
-    * [This additional service](https://github.com/am-dev-75/open-webui_retriva-adapter), acting as a bridge between Retriva backend and Open WebUI frontend
-* When combined with [Open WebUI](https://github.com/am-dev-75/open-webui_retriva)
-  * Chat-based special ingestion directives allowing:
-    * User-provided metadata
-    * Deterministic intent classification
-      * Given the same request, the adapter will always make the same routing decision — regardless of timing, retries, or OWUI’s internal orchestration.
+* User-provided tags for advanced document filtering/querying
 
-##### Details about basic features
+### Internal profiler
 
-See [this page](docs/basic_features.md).
+The Retriva's Core internal profiler is a debugging tool that allows you to see how long each step of the RAG pipeline takes.
 
-##### Details about advanced features
+To enable it, set the `ENABLE_INTERNAL_PROFILER` environment variable to `true`.
 
-See [this page](docs/advanced_features.md).
+The profiler logs each step to the console.
 
-#### Design principles
+Example output:
 
-##### Optimized for engineering/scientific knowledge bases
+```
+...
+[20260428 16:05:06] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'request_received' reached at 0.00ms
+[20260428 16:05:06] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'request_validated' reached at 0.11ms
+[20260428 16:05:07] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'retrieval_vector_search_complete' reached at 825.38ms
+[20260428 16:05:07] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'retrieval_ranking_complete' reached at 825.45ms
+[20260428 16:05:07] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'prompt_construction_complete' reached at 825.70ms
+[20260428 16:05:07] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'inference_request_sent' reached at 844.89ms
+[20260428 16:05:17] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'inference_first_token_received' reached at 11147.15ms
+[20260428 16:05:26] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'inference_complete' reached at 19817.17ms
+[20260428 16:05:26] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'post_processing_complete' reached at 19817.99ms
+[20260428 16:05:26] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'response_sent' reached at 19818.75ms
+...
+```
+Times are expressed in milliseconds and are relative to the start of the request (`Phase 'request_received'`). When a request/response session completes, the profiler emits a structured log message with all the collected data, which can be read from the endpoint `/internal/profiler/log`. The log message is in JSON format. Example:
+
+```
+[20260428 16:05:26] [INFO] PROFILER_LOG: {
+  "request_id": "f880bb28-79b4-4bef-9797-ee5a46b5ec19",
+  "timestamp": "2026-04-28T14:05:26.252540+00:00",
+  "model": "qwen/qwen3.5-27b",
+  "provider": "https://openrouter.ai/api/v1",
+  "is_streaming": true,
+  "phases": {
+    "request_received": 0,
+    "request_validated": 0.11,
+    "retrieval_vector_search_complete": 825.38,
+    "retrieval_ranking_complete": 825.45,
+    "prompt_construction_complete": 825.7,
+    "inference_request_sent": 844.89,
+    "inference_first_token_received": 11147.15,
+    "inference_complete": 19817.17,
+    "post_processing_complete": 19817.99,
+    "response_sent": 19818.75
+  },
+  "total_duration_ms": 19818.81
+}
+```
+### Extension development
+
+As mentioned in the [Licensing notes](#licensing-notes), Retriva Core support extensions that can be added to the codebase. These extensions allow you to customize and enhance Retriva's functionality without modifying the core code.
+
+## Design principles
+
+### Optimized for engineering/scientific knowledge bases
 
 Retriva is optimized for engineering/scientific knowledge bases. This means that it is designed to handle the specific needs of engineering and scientific users, such as those who work with technical documentation, research papers, and other specialized content. Thanks to the use of specialized models, embeddings, and chunking strategies, the system is able to provide accurate and relevant information to users, even though this is "hidden" in complex, articulated, and technical documents feeding Retriva during ingestion.
 
-##### Knowledge base deep grounding
+### Knowledge base deep grounding
 
 Retriva is built on a "grounded-only" principle. It generates responses based strictly on the information available in the provided Knowledge Base (KB). If the system cannot find sufficient information within the KB to answer a query, it will state so explicitly rather than attempting to synthesize or "hallucinate" a response. This ensures high reliability and trustworthiness for information-critical applications.
 
-##### Multi-modal support
+### Multi-modal support
 
 Retriva is designed to support multi-modal inputs, including text, images, and other data types. This allows users to interact with Retriva in a more natural and intuitive way, as well as to leverage the full potential of multi-modal models.
 
-##### Modular design
+### Modular design
 
 Retriva is designed to be modular, allowing users to customize the system to their specific needs. This is achieved through the use of a plugin architecture, which allows users to add or remove features as needed. This modular design also makes it easier to maintain and upgrade the system, as each component can be developed and tested independently.
 
-##### Models agnosticism
+### Models agnosticism
 
 Retriva is designed to be model-agnostic, allowing users to choose the models that best suit their needs. This is achieved simply by changing environment variables specifying the desired models.
 
-##### Frontend agnosticism
+### Frontend agnosticism
 
-Retriva is designed to be frontend-agnostic, allowing users to choose the frontend that best suits their needs. This is achieved by implementing a thin adapter layer between the frontend and the backend, which abstracts the backend API. By default, Retriva comes with an [adapter](https://github.com/am-dev-75/open-webui_retriva-adapter) for [Open WebUI](https://github.com/open-webui/open-webui).
+Although Retriva comes with a web frontend called [Retriva WebUI](https://github.com/am-dev-75/retriva-webui), it is designed to be frontend-agnostic. This allows users to implement a different frontend that best suits their needs if necessary. 
 
 ##### Data Sovereignty
 
 From the very beginning, Retriva was designed with data sovereignty in mind—that is, ensuring that parties other than the owner of the data entered into the knowledge base could not access it. Currently, there are several solutions to address this requirement, each with its own pros and cons. This [section](docs/data_sovereignty.md) provides an overview of these options. Given Retriva’s modular nature, it can be deployed in various ways, including hybrid configurations that combine the options listed in the linked page.
 
-### License notes
-
-Why did I choose the Apache License 2.0? Because this license, combined with certain specific design choices, allows for the creation of Retriva extensions without being required to release them as source code. No one knows if or how the project will evolve. If anyone were ever to use it as a starting point for developing a real product, I believe that the ability to extend it permissively while still remaining connected to the main repository for core functionality is a significant advantage.
 
 ## Architecture
 
@@ -216,7 +257,7 @@ See [this page](docs/implementation.md) for the implementation details.
 ### API
 
 See [this page](./docs/openapi.yaml) for the documentation of Retriva Core's API.
-Gateway's API documentation is [here](TBD).
+Gateway's API documentation is [here](https://github.com/am-dev-75/retriva-gateway/blob/main/docs/openapi.yaml).
 
 ## Quick Start
 
@@ -254,57 +295,23 @@ Access web UI at http://localhost:6333/dashboard
   * `$ sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ita ghostscript`
 * After cloning this repository
   * install dependencies (use of a virtual environment is recommended):
-    ```(retriva-venv) $ pip install -r requirements.txt```
+    ```(retriva-core) $ pip install -r requirements.txt```
   * Copy `.env` from `.env.example` and fill in the values so that Retriva can connect to the Qdrant instance and the LLM's runner(s) you intend to use.
-* Start the ingestion API server:
+* Clone the [Retriva Gateway repository](https://github.com/am-dev-75/retriva-gateway)
+  * Then, install dependencies (use of a virtual environment is recommended):
+```(retriva-gateway) $ pip install -r requirements.txt```
+  * Copy `.env` from `.env.example` and fill in the values so that Retriva Gateway can connect to Retriva Core instance.
+* Clone the [Retriva WebUI repository](https://github.com/am-dev-75/retriva-webui)
 
-```bash
-(retriva-venv) $ PYTHONPATH=src python -m retriva.ingestion_api
-```
+To start Retriva components manually, you can use [this script](./scripts/housekeeping/restart-retriva.py) as reference.
 
-* Build the knowledge base from **your** documents with the CLI. For instance:
+## Possible future developments
 
-```bash
-(retriva-venv) $ PYTHONPATH=src python -m retriva.cli ingest --path ~/my_documents
-```
-
-For more details, run `PYTHONPATH=src python -m retriva.cli -h`.
-
-* Start the chat application:
-
-```bash
-(retriva-venv) $ streamlit run src/retriva/ui/streamlit_app.py
-```
-
-### Use in tandem with Open WebUI (optional)
-
-* Start the Retriva backend providing OpenAI API:
-
-```bash
-(retriva-venv) $ PYTHONPATH=src python -m retriva.openai_api
-```
-
-* Clone the https://github.com/am-dev-75/open-webui_retriva repository.
-* Modify the docker-compose.yml file
-  * to mount the Open WebUI data directory to a persistent volume
-  * to adjust the URL of Open WebUI adapter for Retriva.
-* Start a containerized instance of [Open WebUI for Retriva](https://github.com/am-dev-75/open-webui_retriva).
-* In Open WebUI (OWUI)
-  * create admin user
-  * in User'settings->Account create the API key.
-  * copy this API key in the [Open WebUI/Retriva adapter](https://github.com/am-dev-75/open-webui_retriva-adapter)'s `.env` file so that the adapter che authenticate with OWUI (this operation must be done on first OWUI start only).
-* Stop Open WebUI container.
-* Start [Open WebUI/Retriva adapter](https://github.com/am-dev-75/open-webui_retriva-adapter).
-* Start Open WebUI container.
-* Log in to OWUI and create a [function](https://docs.openwebui.com/features/extensibility/plugin/) by copying [this code](https://github.com/am-dev-75/open-webui_retriva-adapter/blob/main/adapter/scripts/retriva_push_based_synchronization.py). Change the Open WebUI's Adapter URL according to your deployment. This function must either enabled for the model "Retriva" or globally.
-* In OWUI, point your browser to the Open WebUI for Retriva instance and start having fun.
-
-## Future development
-
+* Containerized version to facilitate deployment and simplify dependency management.
 * Test deployment on a confidential computing-enabled cloud, using TensorRT-LLM as the LLM runner.
 * Enable Qdrant hybrid search (semantic + keyword).
 * Refine retrieval pipeline by adding GraphRAG capabilities.
-* Improve Open WebUI integration by using OWUI's IAM for user authentication and authorization.
+* Interfacing to external IAM systems for user authentication and authorization.
 
 ## Licensing
 
