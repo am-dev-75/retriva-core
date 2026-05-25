@@ -46,7 +46,7 @@ paths:
   # --- Ingestion v1 (legacy) API ---
   /api/v1/ingest/text:
     post:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Ingest plain text
       operationId: ingestText
       requestBody:
@@ -65,7 +65,7 @@ paths:
 
   /api/v1/ingest/HTML:
     post:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Ingest HTML content
       operationId: ingestHtml
       requestBody:
@@ -84,7 +84,7 @@ paths:
 
   /api/v1/ingest/pdf:
     post:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Ingest PDF page
       operationId: ingestPdf
       requestBody:
@@ -103,7 +103,7 @@ paths:
 
   /api/v1/ingest/markdown:
     post:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Ingest Markdown sections
       operationId: ingestMarkdown
       requestBody:
@@ -122,7 +122,7 @@ paths:
 
   /api/v1/ingest/image:
     post:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Ingest local image file
       operationId: ingestImage
       requestBody:
@@ -141,7 +141,7 @@ paths:
 
   /api/v1/ingest/mediawiki:
     post:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Ingest MediaWiki export page
       operationId: ingestMediaWiki
       requestBody:
@@ -160,7 +160,7 @@ paths:
 
   /api/v1/ingest/chunks:
     post:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Ingest raw chunks
       operationId: ingestChunks
       requestBody:
@@ -179,7 +179,7 @@ paths:
 
   /api/v1/ingest/collection:
     delete:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Clear entire vector collection
       operationId: clearCollection
       responses:
@@ -192,7 +192,7 @@ paths:
 
   /api/v1/documents/{doc_id}:
     delete:
-      tags: [Ingestion v1]
+      tags: [Ingestion v1 (legacy)]
       summary: Delete a document and its chunks
       operationId: deleteDocument
       parameters:
