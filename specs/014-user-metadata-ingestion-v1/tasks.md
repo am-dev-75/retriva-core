@@ -7,6 +7,6 @@
 - [x] Update vector index writer
 - [x] Add tests for metadata propagation
 - [x] Add tests for backward compatibility
-- [ ] Implement retrieval filtering by metadata
-- [ ] Implement deletion by metadata
-- [ ] Add tests for metadata filtering and deletion
+- [x] Implement retrieval filtering by metadata
+- [x] Implement deletion by metadata
+- [x] Add tests for metadata filtering and deletion

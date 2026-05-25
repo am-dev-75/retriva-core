@@ -128,11 +128,21 @@ def build_qdrant_filter(filters: List[Dict[str, Any]]) -> Optional[Filter]:
     if not filters:
         return None
         
+    core_fields = {
+        "chunk_type", "language", "source_path", "page_title", 
+        "doc_id", "section_path", "kb_id", "filename", 
+        "content_size", "ingestion_status", "created_at",
+        "content_hash", "content_hash_algorithm", "source_paths"
+    }
+        
     must_conditions = []
     for f in filters:
         field = f.get("field")
         op = f.get("operator", "eq")
         val = f.get("value")
+        
+        if field and field not in core_fields and not field.startswith("user_metadata."):
+            field = f"user_metadata.{field}"
         
         if op == "eq":
             must_conditions.append(FieldCondition(key=field, match=MatchValue(value=val)))

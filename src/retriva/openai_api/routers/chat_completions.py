@@ -70,12 +70,12 @@ def _build_citations(chunks: list[dict]) -> list[Citation]:
     """Extract citation metadata from retrieved chunk payloads in Open WebUI format."""
     by_norm_title = {}
     for chunk in chunks:
-        # Try to get a human-friendly title first
-        raw_title = chunk.get("page_title")
+        # Use filename for consistent citations
+        raw_title = chunk.get("filename")
         if not raw_title:
              path = chunk.get("source_path", "unknown")
-             raw_title = Path(path).stem.replace('_', ' ').replace('-', ' ').title()
-             if raw_title == "Unknown":
+             raw_title = Path(path).name
+             if raw_title == "unknown":
                  raw_title = "Unknown Source"
         
         # Group by title to match the simplified prompt builder logic
@@ -497,6 +497,17 @@ async def create_chat_completion(request: ChatCompletionRequest):
     question = _extract_user_question(request)
     bypass_rag = question.startswith("### Task:")
     
+    # Normalize legacy user_metadata_filter into advanced metadata_filters
+    if request.user_metadata_filter:
+        if request.metadata_filters is None:
+            request.metadata_filters = []
+        for k, v in request.user_metadata_filter.items():
+            request.metadata_filters.append({
+                "field": f"user_metadata.{k}",
+                "operator": "eq",
+                "value": v
+            })
+            
     if request.stream:
         return await _handle_streaming(request, question, bypass_rag=bypass_rag)
     else:
