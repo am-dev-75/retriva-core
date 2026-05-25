@@ -49,6 +49,8 @@ As described in more detail in the [Architecture section](#architecture), Retriv
 
 For more details abouth the birth of the project, please see also [Retriva Documentation](https://github.com/am-dev-75/retriva-docs).
 
+There is a [YouTube playlist](https://www.youtube.com/playlist?list=PLlXdajtWCbM6ChFh6P8dML1I9uAQhjOZ9)  illustrating how to work with Retriva from a user's perspective.
+
 ### License notes
 
 Why did I choose the Apache License 2.0? Because this license, combined with certain specific design choices, allows for the creation of Retriva extensions without being required to release them as source code. No one knows if or how the project will evolve. If anyone were ever to use it as a starting point for developing a real product, I believe that the ability to extend it permissively while still remaining connected to the main repository for core functionality is a significant advantage.
@@ -302,8 +304,9 @@ Access web UI at http://localhost:6333/dashboard
 ```(retriva-gateway) $ pip install -r requirements.txt```
   * Copy `.env` from `.env.example` and fill in the values so that Retriva Gateway can connect to Retriva Core instance.
 * Clone the [Retriva WebUI repository](https://github.com/am-dev-75/retriva-webui)
-
-To start Retriva components manually, you can use [this script](./scripts/housekeeping/restart-retriva.py) as reference.
+* Start Retriva components
+  * To start Retriva components manually, you can use [this script](./scripts/housekeeping/restart-retriva.py) as reference.
+* Point your browser to http://localhost:5173/ and have fun!
 
 ## Possible future developments
 
