@@ -48,9 +48,10 @@ def _limit_chunks_by_citations(chunks: list[dict], max_citations: int) -> list[d
                 continue
             seen_titles[title] = 0
             
-        # 2. Per-source size budgeting (approx 6000 chars per source max)
+        # 2. Per-source size budgeting (prevent context explosion)
         text = chunk.get("text", "")
-        if seen_titles[title] + len(text) > 6000:
+        max_chars = getattr(settings, "max_chars_per_source", 24000)
+        if seen_titles[title] + len(text) > max_chars:
             if seen_titles[title] < 2000: # Ensure at least some text per source
                  truncated = text[:2000] + " [TRUNCATED]"
                  limited_chunks.append({**chunk, "text": truncated})

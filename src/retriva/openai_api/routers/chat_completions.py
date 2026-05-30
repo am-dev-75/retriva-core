@@ -121,9 +121,25 @@ def _build_citation_refs(answer: str, citations: list[Citation]) -> tuple[str, s
     Parse [Title] markers from the answer, map the preceding sentence to a CitationRef.
     Returns (clean_text, compat_text, citation_refs, tool_calls).
     """
-    import re
-    title_to_idx = {c.source["name"]: i for i, c in enumerate(citations) if c.source.get("name")}
-    
+    # Build a robust mapping from possible LLM citation strings to citation index
+    title_to_idx = {}
+    for i, c in enumerate(citations):
+        name = c.source.get("name")
+        if name:
+            title_to_idx[name] = i
+            title_to_idx[name.lower()] = i
+            # Also map the stem (without extension) for cases where LLM drops it
+            stem = Path(name).stem
+            title_to_idx[stem] = i
+            title_to_idx[stem.lower()] = i
+            
+            # Map page_title if it was captured in metadata
+            for meta in c.metadata:
+                pt = meta.get("title")
+                if pt:
+                    title_to_idx[pt] = i
+                    title_to_idx[pt.lower()] = i
+
     # Regex to find [Title]
     pattern = r'\[([^\]]+)\]'
     
@@ -135,9 +151,13 @@ def _build_citation_refs(answer: str, citations: list[Citation]) -> tuple[str, s
     current_clean_index = 0
     
     for match in re.finditer(pattern, answer):
-        title = match.group(1)
-        if title in title_to_idx:
-            citation_idx = title_to_idx[title]
+        raw_title = match.group(1)
+        # Try exact, then lowercase
+        citation_idx = title_to_idx.get(raw_title)
+        if citation_idx is None:
+            citation_idx = title_to_idx.get(raw_title.lower())
+            
+        if citation_idx is not None:
             
             text_segment = answer[last_end:match.start()]
             clean_text += text_segment
