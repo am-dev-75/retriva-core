@@ -1,16 +1,38 @@
 # Notes about the implementation
 
 - [Notes about the implementation](#notes-about-the-implementation)
-  - [Retrieval](#retrieval)
+  - [The ingestion process](#the-ingestion-process)
+  - [The retrieval process](#the-retrieval-process)
   - [Exposed APIs](#exposed-apis)
     - [Ingestion API](#ingestion-api)
     - [OpenAI API](#openai-api)
-  - [Open WebUI Interfacing](#open-webui-interfacing)
+  - [Retriva WebUI Interfacing](#retriva-webui-interfacing)
     - [Streaming support](#streaming-support)
     - [Job cancellation support](#job-cancellation-support)
     - [Knowledge Base Management](#knowledge-base-management)
 
-## Retrieval
+## The ingestion process
+
+The Gateway decides whether to split the ingestion process (staging files locally first vs. forwarding them immediately) based on the `source_type` property that is provided when the batch is initially created via the `POST /gateway/ingestion/batches` endpoint.
+
+Here is how the logic works (located in `src/retriva_gateway/api/v2/ingestion.py`).
+
+If the batch is created with `source_type="mediawiki_export"`, the Gateway splits the process:
+
+* **Split Process (Staging)**:  During this entire phase, the Core API doesn't know about these files yet, which is why JobManager is empty and your curl command returns [].
+* **Upload**: As files are uploaded to the batch, the Gateway saves them locally to its temporary directory (e.g., `/tmp/retriva-gateway-uploads/<batch_id>`). It does not contact the Core API during this phase.
+* **Finalize**: Once the client finishes uploading and calls the `/finalize` endpoint, the Gateway makes a single call to the Core API (`core_client.ingest_mediawiki_export`), telling it to process the entire staged directory asynchronously at once as a single job.
+
+If the `source_type` is anything else (like the default "auto"), the Gateway does not split the process (**Direct Pass-through (Immediate)** processing): for every single file uploaded to the batch, the Gateway immediately forwards it to the Core API via `core_client.upload_file_to_batch`, and the Core API starts an ingestion job for that specific file right away.
+
+Only when the Core API is invoked the job(s) appear(s) when querying the Core jobs API (`curl -s http://localhost:8000/api/v2/jobs`). If you want to track the progress of the upload phase, the easiest way is to check how many files the Gateway has staged so far:
+```
+bash
+find /tmp/retriva-gateway-uploads -type f | wc -l
+(I just checked, and you currently have around 3,700 files staged).
+```
+
+## The retrieval process
 
 The hybrid retrieval feature merges the top ranked vector search results with the top re-ranked results, allowing you to get the best of both worlds: implicit evidence from vector search (when you ask about something you haven't explicitly named) and the accuracy of re-ranking for explicit queries.
 
@@ -35,7 +57,6 @@ This example means you can rerank a broader set (`RETRIEVAL_RERANK_TOP_N = 30`) 
 Qdrant (200) → Candidates (20) → Rerank (top 6) → Hybrid (M=6 + L=10) → Budget (25) → LLM
                                        6 chunks   →   up to 16 chunks   →  ≤ 25 sources
 
-
 ## Exposed APIs
 
 Retriva exposes two APIs: an ingestion API and an OpenAI-compatible API.
@@ -54,9 +75,9 @@ The OpenAI-compatible API is located at `/api/v1/chat/completions`. It allows an
 
 Key design decision: the OpenAI-compatible API lives in a separate package (openai_api/) running by default on port 8001, keeping it cleanly decoupled from the ingestion API.
 
-## Open WebUI Interfacing
+## Retriva WebUI Interfacing
 
-For interfacing Retriva with Open WebUI, [an auxiliary service](https://github.com/am-dev-75/open-webui_retriva-adapter) is required. This service allows to ingest new documents into Retriva's knowledge base by uploading them to Open WebUI's chats.
+Retriva WebUI serves as the primary frontend for Retriva, replacing the previous Open WebUI integration. It connects to the Retriva Gateway (port 8002), which sits in front of Retriva Core (ports 8000/8001).
 
 ### Streaming support
 
@@ -80,42 +101,8 @@ Key design decisions:
 
 ### Knowledge Base Management
 
-Retriva maintains its knowledge base in a vector database. For instance, when working in tandem with Qdrant, it makes use of the `retriva_chunks` collection. 
+Retriva maintains its knowledge base in a vector database natively. For instance, when working in tandem with Qdrant, it makes use of the `retriva_chunks` collection.
 
-When Retriva is interfaced to Open WebUI, the OWUI adapter maintains a synchronization between OWUI's KBs and Retriva's KB. Associations between OWUI's KBs and Retriva's KB can be viewed by using debugging endpoints exposed by the adapter. For instance:
+Knowledge Bases (KBs) are managed natively via the v2 API at `/api/v2/kbs`. There is no longer a need for an adapter or external ID mappings. Retriva WebUI creates and manages KBs directly using Retriva Core's endpoints.
 
-```
-$ curl http://localhost:8002/internal/mappings/knowledge-bases | jq
-  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                 Dload  Upload   Total   Spent    Left  Speed
-100   160  100   160    0     0  41862      0 --:--:-- --:--:-- --:--:-- 53333
-[
-  {
-    "owui_kb_id": "749ee4bc-2738-40bd-ab7e-79c6fff76ee3",
-    "retriva_kb_id": "749ee4bc-2738-40bd-ab7e-79c6fff76ee3",
-    "last_seen_at": "2026-05-03T09:04:12.693998+00:00"
-  }
-]
-```
-
-In practice, when a document belonging the the OWUI's KB having ID `owui_kb_id` is uploaded, its chuncks are stored in Retriva's KB with  ID set to `retriva_kb_id`. A similar approach is used for document metadata:
-
-```
-$ curl http://localhost:8002/internal/mappings/documents | jq
-  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                 Dload  Upload   Total   Spent    Left  Speed
-100  6038  100  6038    0     0  3432k      0 --:--:-- --:--:-- --:--:-- 5896k
-[
-  {
-    "id": 26,
-    "owui_file_id": "453310e5-1a10-4d44-be02-2582dec2de29",
-    "filename": "ey-gl-practical-refrence-architecture-for-cra-compliance-11-2025.pdf",
-    "content_type": "application/pdf",
-    "content_hash": "1082fa9a0c3c8795cef4958842645f2e2bd1e6adc6865a6af9e529b476e061fe",
-    "retriva_doc_id": "owui:453310e5-1a10-4d44-be02-2582dec2de29",
-    "status": "synced",
-    "created_at": "2026-04-30T20:14:14.499267+00:00",
-    "updated_at": "2026-04-30T20:14:14.499267+00:00"
-  },
-...
-```
+Documents ingested through the WebUI are routed through the Gateway, which can perform staging (e.g., for MediaWiki exports) before forwarding them to Core's native ingestion pipeline. Each document gets a unique `doc_id` and is tied directly to its target `kb_id`.

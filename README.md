@@ -4,19 +4,18 @@
 
 - [Retriva](#retriva)
   - [Introduction](#introduction)
-    - [Features and design principles](#features-and-design-principles)
-      - [Key features](#key-features)
-        - [Details about basic features](#details-about-basic-features)
-        - [Details about advanced features](#details-about-advanced-features)
-      - [Design principles](#design-principles)
-        - [Optimized for engineering/scientific knowledge bases](#optimized-for-engineeringscientific-knowledge-bases)
-        - [Knowledge base deep grounding](#knowledge-base-deep-grounding)
-        - [Multi-modal support](#multi-modal-support)
-        - [Modular design](#modular-design)
-        - [Models agnosticism](#models-agnosticism)
-        - [Frontend agnosticism](#frontend-agnosticism)
-        - [Data Sovereignty](#data-sovereignty)
     - [License notes](#license-notes)
+  - [Features](#features)
+    - [Internal profiler](#internal-profiler)
+    - [Extension development](#extension-development)
+  - [Design principles](#design-principles)
+    - [Optimized for engineering/scientific knowledge bases](#optimized-for-engineeringscientific-knowledge-bases)
+    - [Knowledge base deep grounding](#knowledge-base-deep-grounding)
+    - [Multi-modal support](#multi-modal-support)
+    - [Modular design](#modular-design)
+    - [Models agnosticism](#models-agnosticism)
+    - [Frontend agnosticism](#frontend-agnosticism)
+        - [Data Sovereignty](#data-sovereignty)
   - [Architecture](#architecture)
     - [Introduction](#introduction-1)
     - [Overview](#overview)
@@ -30,11 +29,10 @@
     - [End-to-End Flow Summary](#end-to-end-flow-summary)
       - [Upload-only flow](#upload-only-flow)
       - [Question flow](#question-flow)
-    - [Implementation](#implementation)
-    - [API](#api)
+  - [API](#api)
+  - [Implementation](#implementation)
   - [Quick Start](#quick-start)
-    - [Use in tandem with Open WebUI (optional)](#use-in-tandem-with-open-webui-optional)
-  - [Future development](#future-development)
+  - [Possible future developments](#possible-future-developments)
   - [Licensing](#licensing)
 
 ## Introduction
@@ -252,14 +250,15 @@ Core → LLM Provider
 
 At no point do uploads implicitly cause LLM calls.
 
-### Implementation
-
-See [this page](docs/implementation.md) for the implementation details.
-
-### API
+## API
 
 See [this page](./docs/openapi.yaml) for the documentation of Retriva Core's API.
 Gateway's API documentation is [here](https://github.com/am-dev-75/retriva-gateway/blob/main/docs/openapi.yaml).
+
+## Implementation
+
+See [this page](./docs/implementation.md) for the implementation details.
+
 
 ## Quick Start
 
