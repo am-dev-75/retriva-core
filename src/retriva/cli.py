@@ -247,6 +247,34 @@ def run_mediawiki_ingest(
     logger.info(f"Asset index: {len(asset_index)} file(s) total.")
 
     # --- 3. Parse and ingest pages ---
+    if api_version == "v2":
+        import time
+        logger.info(f"Submitting MediaWiki export directory to v2 API: {target.absolute()}")
+        payload = {"staged_dir": str(target.absolute())}
+        try:
+            r = requests.post(f"{api_url}/api/v2/documents/mediawiki", json=payload)
+            r.raise_for_status()
+            resp = r.json()
+            job_id = resp["job_id"]
+            logger.info(f"[mediawiki] v2 Job accepted: {job_id}")
+
+            # Poll job status
+            while True:
+                time.sleep(2)
+                r_status = requests.get(f"{api_url}/api/v2/jobs/{job_id}")
+                if not r_status.ok:
+                    logger.warning("Could not fetch job status. Stopping polling.")
+                    break
+                status_data = r_status.json()
+                state = status_data["status"]
+                stage = status_data.get("current_stage", "unknown")
+                logger.info(f"Job {job_id} status: {state} (stage: {stage})")
+                if state in ("completed", "failed", "cancelled"):
+                    break
+        except Exception as e:
+            logger.error(f"Error submitting to v2 API: {e}")
+        return
+
     total = 0
     for xml_path in xml_files:
         logger.info(f"Parsing {xml_path}...")
@@ -590,8 +618,6 @@ def main():
             parser.error(f"Invalid --namespaces value: '{args.namespaces}'. Use comma-separated integers.")
 
     injector = getattr(args, 'injector', None)
-    if injector and args.api_version == "v2":
-        parser.error("The --injector option is only supported when --api-version is v1. V2 handles all supported file types natively.")
 
     if args.command == "ingest":
         if not target.exists():

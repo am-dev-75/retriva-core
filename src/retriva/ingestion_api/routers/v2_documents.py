@@ -63,6 +63,7 @@ from retriva.ingestion_api.schemas_v2 import (
     DocumentResponse,
     DocumentFilterRequest,
     DocumentSearchRequest,
+    MediaWikiExportRequestV2,
 )
 from retriva.logger import get_logger
 from retriva.registry import CapabilityRegistry
@@ -524,6 +525,46 @@ async def ingest_document_v2(
     return IngestResponseV2(
         status="accepted",
         message="Document accepted for processing",
+        job_id=job.id,
+    )
+
+
+@router.post(
+    "/mediawiki",
+    response_model=IngestResponseV2,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def ingest_mediawiki_export_v2(
+    payload: MediaWikiExportRequestV2,
+    background_tasks: BackgroundTasks,
+) -> IngestResponseV2:
+    """Ingest a MediaWiki XML export directory with per-page granularity.
+
+    Accepts a local ``staged_dir`` path containing XML export files and
+    optional ``assets/`` subdirectories. Each wiki page is processed as
+    a separate document with content-hash deduplication.
+    """
+    require_kb_exists(payload.kb_id)
+    logger.info(
+        f"v2 MediaWiki export request: staged_dir={payload.staged_dir} "
+        f"kb_id={payload.kb_id}"
+    )
+    manager = JobManager()
+    job = manager.create_job(source=payload.staged_dir, job_type="v2_mediawiki")
+
+    from retriva.ingestion.mediawiki_v2_parser import process_mediawiki_export
+
+    background_tasks.add_task(
+        process_mediawiki_export,
+        payload.staged_dir,
+        payload.user_metadata,
+        payload.kb_id,
+        lambda: manager.is_cancel_requested(job.id),
+        job.id,
+    )
+    return IngestResponseV2(
+        status="accepted",
+        message="MediaWiki export accepted for processing",
         job_id=job.id,
     )
 

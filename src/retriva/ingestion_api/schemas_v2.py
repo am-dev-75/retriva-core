@@ -110,6 +110,30 @@ class DocumentIngestRequestV2(BaseModel):
         return validate_user_metadata(v)
 
 
+class MediaWikiExportRequestV2(BaseModel):
+    """JSON-body request for MediaWiki XML export directory ingestion."""
+
+    staged_dir: str = Field(
+        ...,
+        description="Local path to the staged directory containing XML exports and optional assets/ subtree.",
+    )
+    kb_id: str = Field(
+        "default",
+        description="Knowledge base id to ingest into. Must exist in the registry.",
+    )
+    user_metadata: Optional[Dict[str, str]] = Field(
+        None,
+        description="Optional user-provided key/value metadata to attach to every chunk.",
+    )
+
+    @field_validator("user_metadata")
+    @classmethod
+    def _validate_metadata(
+        cls, v: Optional[Dict[str, str]],
+    ) -> Optional[Dict[str, str]]:
+        return validate_user_metadata(v)
+
+
 # ---------------------------------------------------------------------------
 # Response schemas
 # ---------------------------------------------------------------------------
