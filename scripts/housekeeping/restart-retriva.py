@@ -13,6 +13,7 @@ import sys
 import argparse
 import socket
 import time
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -228,6 +229,11 @@ def main():
     print("=" * 60)
     print("All services killed")
     print("=" * 60)
+
+    print("Cleaning up gateway uploads...")
+    upload_dir = Path("/tmp/retriva-gateway-uploads")
+    if upload_dir.exists():
+        shutil.rmtree(upload_dir, ignore_errors=True)
 
     if args.kill:
         return
