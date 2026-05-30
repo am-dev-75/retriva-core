@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     # Citation metadata limits
     citation_snippet_size: int = 2000
     max_citations: int = 25
+    max_chars_per_source: int = 24000
     max_metadata_per_citation: int = 0
 
     # Legacy Injection API
