@@ -29,9 +29,10 @@
     - [End-to-End Flow Summary](#end-to-end-flow-summary)
       - [Upload-only flow](#upload-only-flow)
       - [Question flow](#question-flow)
-  - [API](#api)
   - [Implementation](#implementation)
+  - [API](#api)
   - [Quick Start](#quick-start)
+  - [Deployment options](#deployment-options)
   - [Possible future developments](#possible-future-developments)
   - [Licensing](#licensing)
 
@@ -91,6 +92,7 @@ Example output:
 [20260428 16:05:26] [DEBUG] [Profiler][f880bb28-79b4-4bef-9797-ee5a46b5ec19] Phase 'response_sent' reached at 19818.75ms
 ...
 ```
+
 Times are expressed in milliseconds and are relative to the start of the request (`Phase 'request_received'`). When a request/response session completes, the profiler emits a structured log message with all the collected data, which can be read from the endpoint `/internal/profiler/log`. The log message is in JSON format. Example:
 
 ```
@@ -115,6 +117,7 @@ Times are expressed in milliseconds and are relative to the start of the request
   "total_duration_ms": 19818.81
 }
 ```
+
 ### Extension development
 
 As mentioned in the [Licensing notes](#licensing-notes), Retriva Core support extensions that can be added to the codebase. These extensions allow you to customize and enhance Retriva's functionality without modifying the core code.
@@ -143,17 +146,18 @@ Retriva is designed to be model-agnostic, allowing users to choose the models th
 
 ### Frontend agnosticism
 
-Although Retriva comes with a web frontend called [Retriva WebUI](https://github.com/am-dev-75/retriva-webui), it is designed to be frontend-agnostic. This allows users to implement a different frontend that best suits their needs if necessary. 
+Although Retriva comes with a web frontend called [Retriva WebUI](https://github.com/am-dev-75/retriva-webui), it is designed to be frontend-agnostic. This allows users to implement a different frontend that best suits their needs if necessary.
 
 ##### Data Sovereignty
 
 From the very beginning, Retriva was designed with data sovereignty in mind—that is, ensuring that parties other than the owner of the data entered into the knowledge base could not access it. Currently, there are several solutions to address this requirement, each with its own pros and cons. This [section](docs/data_sovereignty.md) provides an overview of these options. Given Retriva’s modular nature, it can be deployed in various ways, including hybrid configurations that combine the options listed in the linked page.
 
-
 ## Architecture
 
 ### Introduction
+
 Basically, to use a RAG system you need to
+
 * Firstly, **ingest** information into it.Ingestion is the process of extracting information from documents and storing it in a way that can be searched and retrieved. This documents — which are usually files — are sually, are ingested in separate Knowledge Bases (KB) that users can name and manage. Therefore, you can think of KBs as specific-purpose databases in which you can store whatever information you want.
 * When you want to interact with your KBs, you query them in natural language for retrieving information, elaborating the data they containm and so on. In this regard, think about Retriva as a tailored version of ChatGPT knowing **your** KBs.
 
@@ -175,23 +179,30 @@ At a high level, the architecture consists of four main components:
 Retriva WebUI is the user-facing web interface that allows users to interact with their documents and knowledge bases through conversational AI (RAG).
 
 #### Document Ingestion
+
 The **Ingestion page** is used to add new files and documents to the system. Users can:
+
 * **Select Target Knowledge Base**: Specify which Knowledge Base the uploaded documents should belong to. If no Knowledge Base is selected, the documents will be uploaded to the `default` Knowledge Base.
 * **Upload Files & Folders**: Upload individual files or entire directory structures of supported formats (PDF, DOCX, XLSX, Markdown, etc.).
 * **Attach Ingestion Metadata (optional)**: Define key-value pairs (e.g., `project: Apollo`) to tag the uploaded files. This metadata is applied at document level during ingestion and automatically propagated to all generated text chunks. These optional, user-defined metadata can be later used to filter documents during catalog exploration and RAG retrieval.
 * **Monitor Ingestion Jobs**: Track the real-time status (queued, processing, ready, or failed) of current and historical ingestion batches.
 
 #### Interacting with ingested documents
+
 Users can interact with ingested documents through two primary interfaces: **Document Discovery** and **Chat** (RAG).
 
 ##### Document Discovery
+
 The **Documents** page allows users to search, filter, list, and manage all ingested documents across different Knowledge Bases. Users can:
+
 * Perform search queries on filenames, source paths, and metadata tags (as a matter of fact, filenames and source paths are also stored as metadata tags).
 * Filter documents by specific metadata properties.
 * Delete documents and their associated index chunks.
 
 ##### Chat and Q&A (RAG)
+
 The **Chat** page enables natural language conversations with the retrieval-augmented generation pipeline. When submitting a query, users can configure:
+
 * **Knowledge Base Selection**: Restrict retrieval to specific knowledge bases (e.g., `default` or project-specific KBs).
 * **Metadata Filters**: Define custom key-value constraints (e.g., `user_metadata.project = apollo`) to target specific subsets of files.
 * **Metadata Filtering Mode**: Choose how strictly the metadata filters should be applied during vector retrieval:
@@ -203,6 +214,7 @@ The **Chat** page enables natural language conversations with the retrieval-augm
 Retriva Gateway serves as the control plane and Backend-for-Frontend (BFF) layer, sitting between Retriva WebUI and Retriva Core. It handles orchestration, WebUI integration, and policy enforcement.
 
 Its key capabilities include:
+
 * **BFF (Backend-for-Frontend) API**: Exposes tailored endpoints for the WebUI (e.g. `/gateway/kbs`, `/gateway/documents`, `/gateway/chat`, and `/gateway/artifacts`), abstracting the complexity of the underlying Core services.
 * **Ingestion Orchestration**: Coordinates multi-step, asynchronous document ingestion batches, handles file uploads, tracks job progress, and applies user-provided metadata at ingestion time.
 * **Intent Classification & Guardrails**: Inspects incoming chat requests to distinguish actual user messages from WebUI control loops or upload notifications. It ensures that system tasks do not trigger unnecessary LLM completions.
@@ -250,17 +262,18 @@ Core → LLM Provider
 
 At no point do uploads implicitly cause LLM calls.
 
+## Implementation
+
+See [this page](./docs/implementation.md) for the implementation details.
+
 ## API
 
 See [this page](./docs/openapi.yaml) for the documentation of Retriva Core's API.
 Gateway's API documentation is [here](https://github.com/am-dev-75/retriva-gateway/blob/main/docs/openapi.yaml).
 
-## Implementation
-
-See [this page](./docs/implementation.md) for the implementation details.
-
-
 ## Quick Start
+
+Procedure to install Retriva and its dependencies manually:
 
 * If not already available, [deploy a Qdrant instance](https://qdrant.tech/documentation/quickstart/).
   * This is the typical log when you start the containerized version:
@@ -271,7 +284,7 @@ See [this page](./docs/implementation.md) for the implementation details.
  / _` |/ _` | '__/ _` | '_ \| __| 
 | (_| | (_| | | | (_| | | | | |_  
  \__, |\__,_|_|  \__,_|_| |_|\__| 
-    |_|               
+    |_|           
 
 Version: 1.17.1, build: eabee371
 Access web UI at http://localhost:6333/dashboard
@@ -300,12 +313,25 @@ Access web UI at http://localhost:6333/dashboard
   * Copy `.env` from `.env.example` and fill in the values so that Retriva can connect to the Qdrant instance and the LLM's runner(s) you intend to use.
 * Clone the [Retriva Gateway repository](https://github.com/am-dev-75/retriva-gateway)
   * Then, install dependencies (use of a virtual environment is recommended):
-```(retriva-gateway) $ pip install -r requirements.txt```
+    ```(retriva-gateway) $ pip install -r requirements.txt```
   * Copy `.env` from `.env.example` and fill in the values so that Retriva Gateway can connect to Retriva Core instance.
 * Clone the [Retriva WebUI repository](https://github.com/am-dev-75/retriva-webui)
 * Start Retriva components
   * To start Retriva components manually, you can use [this script](./scripts/housekeeping/restart-retriva.py) as reference.
 * Point your browser to http://localhost:5173/ and have fun!
+
+## Deployment options
+
+Thanks to its deeply modular design, Retriva can be deployed in several different forms. The following table list the most relevant one, although others are technically possible.
+
+
+| #   | Deployment model                                          | Where components run                                                                           | Main security benefit                                                                                        | Business benefit                                                                                   | Pros                                                                                                                                                                                    | Cons                                                                                                                                                   | Best fit                                                                                                 | Upfront investment | Capex costs | Opex costs |
+| --- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | ------------------ | ----------- | ---------- |
+| 1   | Fully on-prem                                             | WebUI, Gateway, Core, Qdrant, Tika, embeddings, LLM runner all inside customer premises        | Maximum data locality and operational control                                                                | Strongest fit for highly regulated customers and customers with strict data residency requirements | Full control; no sensitive data leaves premises; easier to explain to conservative buyers; works with air-gapped variants                                                               | Highest deployment complexity; customer needs GPU/infra; harder upgrades/support; less elastic                                                         | Defense, critical infrastructure, industrial, healthcare, legal, customers with strict internal policies | $$$                | $$$         | $          |
+| 2   | Hybrid: all on-prem except confidential remote LLM runner | WebUI/Gateway/Core/Qdrant/Tika on-prem; LLM inference on remote confidential-computing machine | Keeps document store and vector DB local while protecting prompts/context in remote TEE                      | Good compromise for customers without local GPU capacity                                           | Lower customer hardware burden; scalable LLM inference; confidential computing reduces cloud-operator trust assumptions; attestation can prove workload identity before sending prompts | Prompts/context still leave premises; requires network connectivity; requires attestation story; may still raise sovereignty questions                 | Customers that can keep data store on-prem but need better LLM compute                                   | $$                 | $$          | $$         |
+| 3   | Fully remote confidential-computing deployment            | Entire Retriva stack runs on confidential-computing VM / cluster                               | Protects data in use from cloud operator and host-level access under the confidential computing threat model | Simplest hosted offer with strong security story                                                   | Easy deployment; scalable; provider can operate/support; good SaaS-like business model; strong confidential-computing narrative                                                         | Data leaves customer environment; compliance depends on region/provider; customer must trust attestation, deployment pipeline, and provider operations | Managed Retriva service, pilots, SMBs, customers comfortable with trusted cloud                          | $                  | $           | $$$        |
+
+[learn.microsoft.com], [redhat.com]
 
 ## Possible future developments
 
