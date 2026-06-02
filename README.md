@@ -40,11 +40,13 @@
 
 Retriva is a conversational AI agent. It is built to provide users with accurate and relevant information by leveraging the power of Retrieval Augmented Generation (RAG).  It is designed for enterprise use cases where data privacy and security are of utmost importance.
 
-As described in more detail in the [Architecture section](#architecture), Retriva consists of three main components, which have separate repositories:
+As described in more detail in the [Architecture section](#architecture), Retriva consists of three main functional components, which have separate repositories:
 
 - [Retriva WebUI](https://github.com/am-dev-75/retriva-webui)
 - [Retriva Gateway](https://github.com/am-dev-75/retriva-gateway)
 - [Retriva Core](https://github.com/am-dev-75/retriva-core)
+
+To automate testing and evaluation for an optional, future CI/CD pipeline, I have also created a testing tool, [Retriva Eval](https://github.com/am-dev-75/retriva-eval), which makes use of common RAG evaluation metrics.
 
 For more details abouth the birth of the project, please see also [Retriva Documentation](https://github.com/am-dev-75/retriva-docs).
 
