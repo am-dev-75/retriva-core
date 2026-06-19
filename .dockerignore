@@ -10,6 +10,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.env.local
+secrets/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -29,7 +31,18 @@ scratch/
 
 # Testing
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 tests/
 
 # Agent
 .agent/
+
+# Build and Node artifacts
+node_modules/
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.temp

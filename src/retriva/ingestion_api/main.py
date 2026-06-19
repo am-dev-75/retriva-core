@@ -67,6 +67,11 @@ async def root():
         "api_v2": "/api/v2"
     }
 
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "ok"}
+
 app.include_router(ingest.router)
 app.include_router(ingest_HTML.router)
 app.include_router(ingest_image.router)

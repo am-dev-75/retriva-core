@@ -322,6 +322,10 @@ Access web UI at http://localhost:6333/dashboard
   * To start Retriva components manually, you can use [this script](./scripts/housekeeping/restart-retriva.py) as reference.
 * Point your browser to http://localhost:5173/ and have fun!
 
+### Containerization
+
+If you plan to deploy Retriva Core as a Docker container, refer to the [Containerization Guide](docs/container.md) for build and run commands, environment variables, and Docker Compose configurations.
+
 ## Deployment options
 
 Thanks to its deeply modular design, Retriva can be deployed in several different forms. The following table list the most relevant one, although others are technically possible.

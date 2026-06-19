@@ -18,7 +18,11 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-eng \
     tesseract-ocr-ita \
     ghostscript \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user and group
+RUN useradd -m -U appuser && chown -R appuser:appuser /app
 
 # Copy only requirements to cache them in docker layer
 COPY requirements.txt /app/
@@ -29,10 +33,17 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy the source code
-COPY src /app/src
+COPY --chown=appuser:appuser src /app/src
+
+# Switch to non-root user
+USER appuser
 
 # Expose ports (8000 for Ingestion API, 8001 for OpenAI API)
 EXPOSE 8000 8001
 
-# The default command will just print a help message or run ingestion_api if overridden in compose
-CMD ["python", "-m", "retriva.ingestion_api"]
+# Add Healthcheck (supports both OpenAI API on 8001 and Ingestion API on 8000)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8001/health || curl -f http://localhost:8000/health || exit 1
+
+# The default command runs the OpenAI API (Core). It can be overridden in compose for Ingestion API.
+CMD ["python", "-m", "retriva.openai_api", "--host", "0.0.0.0", "--port", "8001"]

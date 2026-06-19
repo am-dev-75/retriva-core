@@ -62,6 +62,11 @@ async def root():
         "status": "ready"
     }
 
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "ok"}
+
 # Allow cross-origin requests — Open WebUI may run on a different host/port.
 app.add_middleware(
     CORSMiddleware,
