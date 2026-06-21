@@ -19,6 +19,7 @@ Script to restart all Retriva services:
 - openai_api
 - retriva-gateway
 - retriva-webui
+- whisper-server
 """
 
 import os
@@ -44,6 +45,7 @@ VENV_GATEWAY = Path("/mnt/nvme0/venvs/.retriva-gateway")
 RETRIVA_PATH = BASE_DIR / "retriva"
 GATEWAY_PATH = BASE_DIR / "retriva-gateway"
 WEBUI_PATH = BASE_DIR / "retriva-webui"
+WHISPER_PATH = BASE_DIR / "whisper.cpp"
 
 # Ensure logs directory exists
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -210,6 +212,35 @@ def start_npm_service(name, service_path, log_file=None):
         print(f"Error starting {name}: {e}")
 
 
+def start_whisper_service(name, service_path, log_file):
+    """Start whisper-server service."""
+    print(f"Starting {name}...")
+    
+    kill_process_by_name("whisper-server")
+    env = os.environ.copy()
+    env["NO_COLOR"] = "1"
+    env["TERM"] = "dumb"
+
+    args = ["./build/bin/whisper-server", "-m", "models/ggml-small.bin", "--host", "127.0.0.1", "--port", "8100", "-t", "8"]
+
+    log_path = LOGS_DIR / log_file
+    try:
+        with open(log_path, "wb") as log_f:
+            subprocess.Popen(
+                args,
+                cwd=service_path,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                env=env,
+                start_new_session=True,
+                close_fds=True,
+            )
+        print(f"Started {name} -> {log_path}")
+    except Exception as e:
+        print(f"Error starting {name}: {e}")
+
+
 def wait_for_tcp(host: str, port: int, timeout: int = 30) -> bool:
     """Wait until a TCP port is open on host or timeout (seconds).
 
@@ -240,6 +271,7 @@ def main():
     kill_process_by_name("retriva_gateway.main")
     kill_process_by_name("retriva.openai_api")
     kill_process_by_name("retriva.ingestion_api")
+    kill_process_by_name("whisper-server")
     print("=" * 60)
     print("All services killed")
     print("=" * 60)
@@ -297,6 +329,13 @@ def main():
         "retriva-webui",
         WEBUI_PATH,
         f"{DATE_STR}-webui.txt"
+    )
+    
+    # Start whisper-server
+    start_whisper_service(
+        "whisper-server",
+        WHISPER_PATH,
+        f"{DATE_STR}-whisper.txt"
     )
     
     print("=" * 60)

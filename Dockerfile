@@ -36,6 +36,7 @@ RUN pip install --upgrade pip && \
 COPY --chown=appuser:appuser src /app/src
 
 # Switch to non-root user
+RUN mkdir -p /app/storage && chown -R appuser:appuser /app/storage
 USER appuser
 
 # Expose ports (8000 for Ingestion API, 8001 for OpenAI API)

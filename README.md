@@ -27,7 +27,7 @@
     - [Retriva Gateway](#retriva-gateway)
     - [Retriva Core](#retriva-core)
     - [End-to-End Flow Summary](#end-to-end-flow-summary)
-      - [Upload-only flow](#upload-only-flow)
+      - [Static Ingestion flow](#static-ingestion-flow)
       - [Question flow](#question-flow)
   - [Implementation](#implementation)
   - [API](#api)
@@ -182,12 +182,17 @@ Retriva WebUI is the user-facing web interface that allows users to interact wit
 
 #### Document Ingestion
 
-The **Ingestion page** is used to add new files and documents to the system. Users can:
+The **Ingestion page** is used to add new files and documents to the system. It offers two main ingestion methods:
 
+**1. Static Ingestion**
+Allows users to manually upload static documents into the system. Users can:
 * **Select Target Knowledge Base**: Specify which Knowledge Base the uploaded documents should belong to. If no Knowledge Base is selected, the documents will be uploaded to the `default` Knowledge Base.
 * **Upload Files & Folders**: Upload individual files or entire directory structures of supported formats (PDF, DOCX, XLSX, Markdown, etc.).
 * **Attach Ingestion Metadata (optional)**: Define key-value pairs (e.g., `project: Apollo`) to tag the uploaded files. This metadata is applied at document level during ingestion and automatically propagated to all generated text chunks. These optional, user-defined metadata can be later used to filter documents during catalog exploration and RAG retrieval.
 * **Monitor Ingestion Jobs**: Track the real-time status (queued, processing, ready, or failed) of current and historical ingestion batches.
+
+**2. Dynamic Ingestion**
+Allows users to configure persistent connections to external data sources (e.g., MediaWiki). These sources are synchronized automatically, enabling Retriva to dynamically ingest and index live content as it changes in the origin system.
 
 #### Interacting with ingested documents
 
@@ -245,7 +250,7 @@ Retriva Core treats every upload as a distinct document, even if file content is
 
 ### End-to-End Flow Summary
 
-#### Upload-only flow
+#### Static Ingestion flow
 
 ```
 User → WebUI (upload file)
