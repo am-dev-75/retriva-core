@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     ocrmypdf_language: str = "eng+ita"
     ocrmypdf_deskew: bool = True
     ocrmypdf_rotate_pages: bool = True
+    ocrmypdf_force_ocr: bool = True
     v2_primary_parser: str = "docling"
     accelerator_device: str = "cpu"  # cpu, cuda, mps, auto
 

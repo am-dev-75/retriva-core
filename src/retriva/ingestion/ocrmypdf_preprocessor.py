@@ -46,6 +46,7 @@ class OCRmyPDFPreprocessor:
         self.language = language if language is not None else settings.ocrmypdf_language
         self.deskew = deskew if deskew is not None else settings.ocrmypdf_deskew
         self.rotate_pages = rotate_pages if rotate_pages is not None else settings.ocrmypdf_rotate_pages
+        self.force_ocr = settings.ocrmypdf_force_ocr
         self.enabled = settings.ocrmypdf_enabled
 
     def needs_ocr(self, detection) -> bool:
@@ -99,7 +100,7 @@ class OCRmyPDFPreprocessor:
 
         logger.info(
             f"Running OCRmyPDF on '{input_file.name}' "
-            f"(lang={self.language}, deskew={self.deskew}, rotate={self.rotate_pages})"
+            f"(lang={self.language}, deskew={self.deskew}, rotate={self.rotate_pages}, force_ocr={self.force_ocr})"
         )
 
         try:
@@ -109,7 +110,7 @@ class OCRmyPDFPreprocessor:
                 language=self.language,
                 deskew=self.deskew,
                 rotate_pages=self.rotate_pages,
-                skip_text=True,  # Don't re-OCR pages that already have text
+                force_ocr=self.force_ocr,
                 progress_bar=False,
             )
             output_file = Path(output_path)
