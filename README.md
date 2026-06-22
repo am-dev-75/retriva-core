@@ -293,7 +293,7 @@ Procedure to install Retriva and its dependencies manually:
  \__, |\__,_|_|  \__,_|_| |_|\__| 
     |_|           
 
-Version: 1.17.1, build: eabee371
+Version: 1.2.0 build: eabee371
 Access web UI at http://localhost:6333/dashboard
 
 2026-04-03T21:17:56.070752Z  INFO storage::content_manager::consensus::persistent: Loading raft state from ./storage/raft_state.json
