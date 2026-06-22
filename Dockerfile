@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-ita \
     ghostscript \
     curl \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user and group
@@ -36,7 +38,9 @@ RUN pip install --upgrade pip && \
 COPY --chown=appuser:appuser src /app/src
 
 # Switch to non-root user
-RUN mkdir -p /app/storage && chown -R appuser:appuser /app/storage
+# Make rapidocr models dir writable so Docling can download model variants at runtime
+RUN mkdir -p /app/storage && chown -R appuser:appuser /app/storage && \
+    chmod -R a+rw /usr/local/lib/python3.12/site-packages/rapidocr/models/
 USER appuser
 
 # Expose ports (8000 for Ingestion API, 8001 for OpenAI API)
