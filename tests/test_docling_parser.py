@@ -18,10 +18,22 @@ Unit tests for the Docling parser.
 All tests mock the docling.DocumentConverter — no Docling models required.
 """
 
+import enum
+
 import pytest
 from unittest.mock import patch, MagicMock, PropertyMock
 
 from retriva.domain.models import CanonicalRecord
+
+
+class _FakeDocItemLabel(str, enum.Enum):
+    """Mimics Docling 2.x ``DocItemLabel`` enum (str-based, has ``.value``)."""
+
+    TITLE = "title"
+    SECTION_HEADER = "section_header"
+    PARAGRAPH = "paragraph"
+    TEXT = "text"
+    TABLE = "table"
 
 
 class TestDoclingParser:
@@ -35,11 +47,20 @@ class TestDoclingParser:
         return parser
 
     def _mock_item(self, label, text, page_no=1):
-        """Create a mock Docling document item."""
+        """Create a mock Docling document item.
+
+        ``label`` is wrapped in a ``DocItemLabel``-like enum to mirror the
+        real Docling 2.x API, where ``item.label`` is an enum rather than a
+        bare string. ``export_to_markdown`` is intentionally NOT provided as
+        a callable returning text here; real Docling text items expose their
+        content via ``.text``, so we rely on that strategy.
+        """
         item = MagicMock()
-        item.label = label
+        item.label = _FakeDocItemLabel(label)
         item.text = text
-        item.export_to_markdown.return_value = text
+        # Real Docling TextItem objects do not implement export_to_markdown;
+        # make it fail so the parser falls through to the .text strategy.
+        item.export_to_markdown.side_effect = AttributeError("no export_to_markdown")
 
         # Mock provenance
         prov_entry = MagicMock()
@@ -51,6 +72,16 @@ class TestDoclingParser:
 
         return item
 
+    @staticmethod
+    def _as_iterate_items(items):
+        """Wrap items as Docling 2.x ``(item, level)`` tuples.
+
+        ``DoclingDocument.iterate_items()`` yields ``(NodeItem, level)``
+        tuples, NOT bare items. Tests must mirror this so the tuple-unpacking
+        in the parser is actually exercised.
+        """
+        return iter([(it, 1) for it in items])
+
     @patch("retriva.ingestion.docling_parser.DoclingParser._get_converter")
     def test_parse_returns_canonical_records(self, mock_get_converter, tmp_path):
         # Create a mock Docling result
@@ -60,7 +91,7 @@ class TestDoclingParser:
             self._mock_item("paragraph", "This is the introduction text."),
             self._mock_item("paragraph", "More content here."),
         ]
-        mock_doc.iterate_items.return_value = iter(items)
+        mock_doc.iterate_items.return_value = self._as_iterate_items(items)
 
         mock_result = MagicMock()
         mock_result.document = mock_doc
@@ -88,7 +119,7 @@ class TestDoclingParser:
         mock_doc = MagicMock()
         table_item = self._mock_item("table", "| A | B |\n|---|---|\n| 1 | 2 |")
         table_item.export_to_html.return_value = "<table><tr><td>1</td></tr></table>"
-        mock_doc.iterate_items.return_value = iter([table_item])
+        mock_doc.iterate_items.return_value = self._as_iterate_items([table_item])
 
         mock_result = MagicMock()
         mock_result.document = mock_doc
@@ -116,7 +147,7 @@ class TestDoclingParser:
             self._mock_item("paragraph", "   "),  # whitespace only
             self._mock_item("paragraph", "Valid content"),
         ]
-        mock_doc.iterate_items.return_value = iter(items)
+        mock_doc.iterate_items.return_value = self._as_iterate_items(items)
 
         mock_result = MagicMock()
         mock_result.document = mock_doc
@@ -159,3 +190,106 @@ class TestDoclingParser:
         assert len(records) == 1
         assert records[0].text == "# Fallback\n\nSome text."
         assert records[0].parser_name == "docling"
+
+    @patch("retriva.ingestion.docling_parser.DoclingParser._get_converter")
+    def test_iterate_items_yields_tuples_regression(self, mock_get_converter, tmp_path):
+        """Regression test for the "0 canonical records" bug.
+
+        Docling >= 2.x ``DoclingDocument.iterate_items()`` yields
+        ``(item, level)`` tuples, not bare items. If the parser does not
+        unpack the tuple it operates on a ``tuple`` object, every text
+        extraction strategy returns ``None`` and the document silently
+        produces ZERO records — exactly the symptom seen when ingesting a
+        large PDF ("Docling produced 0 canonical records").
+
+        This test feeds genuine 2.x-shaped tuples and asserts records are
+        still produced.
+        """
+        mock_doc = MagicMock()
+        items = [
+            self._mock_item("section_header", "3.3 Checkpoints"),
+            self._mock_item("paragraph", "The power outlet must be checked."),
+        ]
+        # Explicitly yield (item, level) tuples — the real Docling 2.x shape.
+        mock_doc.iterate_items.return_value = iter([(items[0], 1), (items[1], 1)])
+
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+        mock_get_converter.return_value = mock_converter
+
+        f = tmp_path / "large.pdf"
+        f.write_bytes(b"content")
+
+        parser = self._make_parser()
+        parser._converter = mock_converter
+        records = parser.parse(str(f), "application/pdf")
+
+        # The bug would make this 0.
+        assert len(records) == 2
+        assert records[0].text == "3.3 Checkpoints"
+        assert records[1].text == "The power outlet must be checked."
+
+    @patch("retriva.ingestion.docling_parser.DoclingParser._get_converter")
+    def test_enum_label_maps_to_element_type(self, mock_get_converter, tmp_path):
+        """``item.label`` is a ``DocItemLabel`` enum in Docling 2.x.
+
+        The element-type map keys are plain strings, so the enum must be
+        coerced to its string value before lookup; otherwise every element
+        would fall through to the default "text" type and structural
+        information (headings, tables) would be lost.
+        """
+        mock_doc = MagicMock()
+        items = [
+            self._mock_item("title", "Document Title"),
+            self._mock_item("section_header", "A Section"),
+        ]
+        mock_doc.iterate_items.return_value = self._as_iterate_items(items)
+
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+        mock_get_converter.return_value = mock_converter
+
+        f = tmp_path / "test.pdf"
+        f.write_bytes(b"content")
+
+        parser = self._make_parser()
+        parser._converter = mock_converter
+        records = parser.parse(str(f), "application/pdf")
+
+        assert len(records) == 2
+        # Both 'title' and 'section_header' map to the canonical 'heading'.
+        assert records[0].element_type == "heading"
+        assert records[1].element_type == "heading"
+
+    @patch("retriva.ingestion.docling_parser.DoclingParser._get_converter")
+    def test_legacy_bare_items_still_supported(self, mock_get_converter, tmp_path):
+        """Older Docling (< 2.x) yields bare items; the parser must still cope."""
+        mock_doc = MagicMock()
+        items = [
+            self._mock_item("paragraph", "Legacy content."),
+        ]
+        # Bare items, NOT tuples.
+        mock_doc.iterate_items.return_value = iter(items)
+
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+        mock_get_converter.return_value = mock_converter
+
+        f = tmp_path / "test.pdf"
+        f.write_bytes(b"content")
+
+        parser = self._make_parser()
+        parser._converter = mock_converter
+        records = parser.parse(str(f), "application/pdf")
+
+        assert len(records) == 1
+        assert records[0].text == "Legacy content."

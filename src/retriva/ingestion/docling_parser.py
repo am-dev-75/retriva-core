@@ -133,12 +133,25 @@ class DoclingParser:
         doc = result.document
         records: List[CanonicalRecord] = []
 
-        # Iterate over document elements (Docling's internal structure)
+        # Iterate over document elements (Docling's internal structure).
+        #
+        # NOTE: In Docling >= 2.x, ``DoclingDocument.iterate_items()`` yields
+        # ``(NodeItem, level)`` tuples rather than bare items.  We must unpack
+        # the tuple before handing the actual item to ``_item_to_record``;
+        # otherwise every text-extraction strategy operates on a ``tuple``,
+        # silently returns ``None`` and the document yields 0 records.
         try:
-            for item in doc.iterate_items():
+            for entry in doc.iterate_items():
                 if cancel_check and cancel_check():
                     from retriva.ingestion_api.job_manager import CancellationError
                     raise CancellationError("Cancelled during Docling parsing")
+
+                # Docling 2.x yields (item, level) tuples; older versions yield
+                # bare items. Normalize both shapes to a single ``item``.
+                if isinstance(entry, tuple):
+                    item = entry[0]
+                else:
+                    item = entry
 
                 record = self._item_to_record(item, source, doc)
                 if record is not None:
@@ -164,15 +177,55 @@ class DoclingParser:
 
     def _item_to_record(self, item, source: str, doc) -> Optional[CanonicalRecord]:
         """Convert a single Docling document item to a CanonicalRecord."""
-        # Determine element type
-        item_type = getattr(item, "label", None) or type(item).__name__.lower()
+        # Determine element type.
+        #
+        # In Docling 2.x ``item.label`` is a ``DocItemLabel`` enum, not a plain
+        # string.  Using the enum directly as a dict key never matches the
+        # string keys in ``_ELEMENT_TYPE_MAP`` (everything would fall through to
+        # "text"), so coerce it to its string value first.
+        raw_label = getattr(item, "label", None)
+        if raw_label is not None:
+            item_type = getattr(raw_label, "value", None) or str(raw_label)
+        else:
+            item_type = type(item).__name__.lower()
         element_type = _ELEMENT_TYPE_MAP.get(item_type, "text")
 
-        # Extract text content
-        try:
-            text = item.export_to_markdown()
-        except (AttributeError, Exception):
-            text = getattr(item, "text", "") or str(item)
+        # Extract text content — try multiple strategies in order of preference.
+        # Newer Docling versions require the `doc` context for markdown export;
+        # without it, export_to_markdown() may fail or return empty.
+        # NEVER fall back to str(item), which produces Python repr with
+        # BoundingBox, DocItemLabel, etc. that pollutes embeddings.
+        text = ""
+
+        # Strategy 1: export_to_markdown with doc context (Docling >= 2.x)
+        if not text:
+            try:
+                result = item.export_to_markdown(doc)
+                if isinstance(result, str) and result.strip():
+                    text = result
+            except (AttributeError, TypeError, Exception):
+                pass
+
+        # Strategy 2: export_to_markdown without context (Docling < 2.x)
+        if not text:
+            try:
+                result = item.export_to_markdown()
+                if isinstance(result, str) and result.strip():
+                    text = result
+            except (AttributeError, Exception):
+                pass
+
+        # Strategy 3: direct .text attribute
+        if not text:
+            result = getattr(item, "text", None)
+            if isinstance(result, str) and result.strip():
+                text = result
+
+        # Strategy 4: .orig attribute (original text, seen in Docling items)
+        if not text:
+            result = getattr(item, "orig", None)
+            if isinstance(result, str) and result.strip():
+                text = result
 
         if not text or not text.strip():
             return None
@@ -204,7 +257,8 @@ class DoclingParser:
             # Walk up the document tree to collect headings
             parent = getattr(item, "parent", None)
             while parent is not None:
-                parent_label = getattr(parent, "label", "")
+                parent_label_raw = getattr(parent, "label", "")
+                parent_label = getattr(parent_label_raw, "value", None) or str(parent_label_raw)
                 if parent_label in ("title", "section_header"):
                     parent_text = getattr(parent, "text", "")
                     if parent_text:

@@ -13,14 +13,85 @@
 # limitations under the License.
 
 import hashlib
+import re
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Tuple
 from retriva.domain.models import Chunk, ChunkMetadata, ParsedDocument
 from retriva.logger import get_logger
 
 from retriva.config import settings
 
 logger = get_logger(__name__)
+
+# Matches markdown-style headings: # through ####
+# Only fires on lines produced by Docling's records_to_parsed_document()
+# which prefixes headings with '#'. MediaWiki plaintext never contains
+# these markers (headings are stripped to bare text), so this is inert
+# for the MediaWiki ingestion path.
+_RE_MD_HEADING = re.compile(r"^(#{1,4})\s+(.+)$")
+
+
+def _is_heading(paragraph: str) -> bool:
+    """Return True if *paragraph* is a single-line markdown heading."""
+    return bool(_RE_MD_HEADING.match(paragraph))
+
+
+def _extract_heading_text(paragraph: str) -> str:
+    """Return the bare heading text from a markdown heading line."""
+    m = _RE_MD_HEADING.match(paragraph)
+    return m.group(2).strip() if m else ""
+
+
+def _merge_heading_paragraphs(paragraphs: List[str]) -> List[Tuple[str, str]]:
+    """Merge heading paragraphs with the body paragraphs that follow them.
+
+    Returns a list of ``(section_heading, text)`` tuples.  When a heading
+    is encountered it is absorbed into the next body paragraph rather than
+    emitted as a standalone micro-chunk.  If no heading is active the
+    ``section_heading`` is ``""``.
+
+    For content without markdown headings (e.g. MediaWiki plaintext) every
+    tuple will have ``section_heading == ""``, preserving current behaviour.
+    """
+    result: List[Tuple[str, str]] = []
+    current_heading = ""
+    pending_heading_text = ""  # raw heading paragraph waiting for a body
+
+    for para in paragraphs:
+        if _is_heading(para):
+            # If there was already a pending heading with no body, emit it
+            # as a standalone chunk (rare edge case: consecutive headings).
+            if pending_heading_text:
+                result.append((current_heading, pending_heading_text))
+
+            current_heading = _extract_heading_text(para)
+            pending_heading_text = para  # keep the raw markdown line
+        else:
+            if pending_heading_text:
+                # Merge the heading line with the following body paragraph
+                merged = f"{pending_heading_text}\n\n{para}"
+                result.append((current_heading, merged))
+                pending_heading_text = ""
+            else:
+                result.append((current_heading, para))
+
+    # Flush any trailing heading that had no body after it
+    if pending_heading_text:
+        result.append((current_heading, pending_heading_text))
+
+    return result
+
+
+def _prepend_section_context(text: str, section_heading: str) -> str:
+    """Prepend a ``[Section: …]`` context prefix to *text*.
+
+    If *section_heading* is empty the text is returned unchanged (no-op
+    for MediaWiki and other non-heading content).
+    """
+    if not section_heading:
+        return text
+    return f"[Section: {section_heading}]\n{text}"
+
 
 def recursive_split_text(text: str, max_chars: int, overlap: int) -> List[str]:
     """
@@ -122,30 +193,52 @@ def create_image_chunks(document: ParsedDocument, ingestion_timestamp: str = Non
 
 def create_chunks(document: ParsedDocument) -> List[Chunk]:
     """
-    Splits the parsed document text into chunks under the character limit.
+    Splits the parsed document text into section-aware chunks.
+
+    Markdown-style headings (``# … `` through ``#### …``) are detected and
+    used in two ways:
+
+    1. **Heading merging** — a heading paragraph is merged with the body
+       paragraph that follows it so they stay in the same chunk instead of
+       producing an orphaned micro-chunk.
+    2. **Section context prefix** — every body chunk is prefixed with
+       ``[Section: <heading text>]`` so that the embedding carries the
+       semantic identity of its section.
+
+    For content without markdown headings (e.g. MediaWiki plaintext) the
+    behaviour is identical to the previous implementation.
     """
     ingestion_timestamp = datetime.now(timezone.utc).isoformat()
 
     paragraphs = [p.strip() for p in document.content_text.split("\n\n") if p.strip()]
     logger.debug(f"Splitting '{document.source_path}' into {len(paragraphs)} initial paragraphs...")
-    
-    final_texts = []
-    for para in paragraphs:
+
+    # Phase 1: merge headings with following body paragraphs
+    merged_paragraphs = _merge_heading_paragraphs(paragraphs)
+
+    # Phase 2: split oversized paragraphs, preserving section info
+    final_items: List[Tuple[str, str]] = []  # (section_heading, text)
+    for section_heading, para in merged_paragraphs:
         if len(para) > settings.max_chunk_chars:
             logger.info(f"Paragraph too long ({len(para)} chars), splitting recursively...")
-            split_para = recursive_split_text(para, settings.max_chunk_chars, settings.chunk_overlap)
-            final_texts.extend(split_para)
+            split_parts = recursive_split_text(para, settings.max_chunk_chars, settings.chunk_overlap)
+            for part in split_parts:
+                final_items.append((section_heading, part))
         else:
-            final_texts.append(para)
-            
+            final_items.append((section_heading, para))
+
+    # Phase 3: create Chunk objects with section context
     chunks = []
-    for idx, text in enumerate(final_texts):
+    for idx, (section_heading, text) in enumerate(final_items):
+        # Prepend section context for embedding quality
+        enriched_text = _prepend_section_context(text, section_heading)
+
         chunk_id = hashlib.md5(f"{document.canonical_doc_id}_{idx}".encode("utf-8")).hexdigest()
         meta = ChunkMetadata(
             doc_id=document.doc_id or document.canonical_doc_id,
             source_path=document.source_path,
             page_title=document.page_title,
-            section_path="",
+            section_path=section_heading,
             chunk_id=chunk_id,
             chunk_index=idx,
             chunk_type="text",
@@ -162,7 +255,7 @@ def create_chunks(document: ParsedDocument) -> List[Chunk]:
             source_paths=document.source_paths,
         )
         
-        chunk = Chunk(text=text, metadata=meta)
+        chunk = Chunk(text=enriched_text, metadata=meta)
         chunks.append(chunk)
         
     image_chunks = create_image_chunks(document, ingestion_timestamp=ingestion_timestamp)
