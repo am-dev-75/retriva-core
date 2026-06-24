@@ -295,23 +295,8 @@ Procedure to install Retriva and its dependencies manually:
  \__, |\__,_|_|  \__,_|_| |_|\__| 
     |_|           
 
-Version: 1.2.1 build: eabee371
-Access web UI at http://localhost:6333/dashboard
-
-2026-04-03T21:17:56.070752Z  INFO storage::content_manager::consensus::persistent: Loading raft state from ./storage/raft_state.json
-2026-04-03T21:17:56.081084Z  INFO storage::content_manager::toc: Loading collection: retriva_chunks
-2026-04-03T21:17:56.101527Z  INFO collection::shards::local_shard: Recovering shard ./storage/collections/retriva_chunks/0: 0/1 (0%)
-2026-04-03T21:17:56.103581Z  INFO collection::shards::local_shard: Recovered collection retriva_chunks: 1/1 (100%)
-2026-04-03T21:17:56.108149Z  INFO qdrant: Distributed mode disabled
-2026-04-03T21:17:56.108463Z  INFO qdrant: Telemetry reporting enabled, id: c012b687-e64f-419e-abf8-8ada1e63a2b8
-2026-04-03T21:17:56.147714Z  INFO qdrant::tonic: Qdrant gRPC listening on 6334
-2026-04-03T21:17:56.147723Z  INFO qdrant::tonic: TLS disabled for gRPC API
-2026-04-03T21:17:56.148679Z  INFO qdrant::actix: REST transport settings: keep_alive=5s, client_request_timeout=5s, client_disconnect_timeout=5s
-2026-04-03T21:17:56.148694Z  INFO qdrant::actix: TLS disabled for REST API
-2026-04-03T21:17:56.148977Z  INFO qdrant::actix: Qdrant HTTP listening on 6333
-2026-04-03T21:17:56.149118Z  INFO actix_server::builder: starting 31 workers
-2026-04-03T21:17:56.149514Z  INFO actix_server::server: Actix runtime found; starting in Actix runtime
-2026-04-03T21:17:56.149519Z  INFO actix_server::server: starting service: "actix-web-service-0.0.0.0:6333", workers: 31, listening on: 0.0.0.0:6333
+...
+0:6333", workers: 31, listening on: 0.0.0.0:6333
 ```
 
 * Install required packages
