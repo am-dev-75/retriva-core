@@ -29,6 +29,7 @@ Provides a multi-tool, routing-based ingestion pipeline:
 
 import json as _json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -82,6 +83,63 @@ router = APIRouter(prefix="/api/v2/documents", tags=["v2-documents"])
 
 
 # ---------------------------------------------------------------------------
+# Parser-noise filtering (TOC dot-leaders, OCR fragments, etc.)
+# ---------------------------------------------------------------------------
+
+# Table-of-contents lines: a run of dot leaders (optionally spaced) followed by
+# a page reference, e.g. "3.3 CHECKPOINTS........ A-7" or "C7601.... eiL-124".
+_RE_TOC_DOT_LEADER = re.compile(r"\.\s?\.\s?\.\s?\.[\s.]*\S*\s*$")
+# A line that is almost entirely dots / dot-leader noise.
+_RE_MOSTLY_DOTS = re.compile(r"^[\s.]*\.{4,}[\s.]*\S{0,12}$")
+
+
+def _is_toc_line(text: str) -> bool:
+    """Return True if *text* looks like a single table-of-contents entry.
+
+    TOC lines are dominated by dot leaders ending in a page reference and
+    carry no retrievable knowledge. Body paragraphs that merely contain a
+    decimal number (e.g. "3.3") are NOT matched because they lack the long
+    run of dot leaders.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if _RE_MOSTLY_DOTS.match(stripped):
+        return True
+    if _RE_TOC_DOT_LEADER.search(stripped):
+        return True
+    return False
+
+
+def _is_noise_fragment(text: str, *, is_heading: bool = False) -> bool:
+    """Return True if *text* is parser/OCR noise that should be dropped.
+
+    Heuristics (deliberately conservative to avoid discarding real content):
+      * empty / whitespace only
+      * table-of-contents dot-leader lines
+      * fragments with no alphabetic character (rule lines, stray marks)
+      * ultra-short single tokens with no spaces (OCR garble like "BANG")
+
+    Headings are exempt from the short/alpha checks because legitimate
+    section headers can be terse (e.g. "3.3.1").
+    """
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if _is_toc_line(stripped):
+        return True
+    if not is_heading:
+        # No alphabetic content at all (e.g. "....", "|---|", "/\\").
+        if not any(c.isalpha() for c in stripped):
+            return True
+        # Extremely short single-token fragments are almost always OCR
+        # garble. Anything forming a phrase (has a space) or longer is kept.
+        if len(stripped) < 4 and " " not in stripped:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # CanonicalRecord → ParsedDocument conversion
 # ---------------------------------------------------------------------------
 
@@ -112,18 +170,28 @@ def records_to_parsed_document(
 
     text_parts: List[str] = []
     images: list = []
+    dropped_noise = 0
 
     for record in records:
         if record.element_type == "image":
-            # Image records are handled as ImageContext for the chunker
+            # Only keep images that carry usable text (a VLM description or a
+            # caption). Images with no description AND no caption are pure
+            # placeholders that pollute embeddings, so drop them.
+            img_text = (record.text or "").strip()
+            if not img_text:
+                dropped_noise += 1
+                continue
             images.append(ImageContext(
                 src=record.image_path or record.source_uri,
                 alt="",
                 caption="",
-                surrounding_text=record.text[:200] if record.text else "",
-                vlm_description=record.text if record.text else "",
+                surrounding_text=img_text[:200],
+                vlm_description=img_text,
             ))
         elif record.element_type == "heading":
+            if _is_noise_fragment(record.text, is_heading=True):
+                dropped_noise += 1
+                continue
             # Preserve headings as markdown-style markers
             level = len(record.heading_path) + 1
             prefix = "#" * min(level, 4)
@@ -131,16 +199,32 @@ def records_to_parsed_document(
         elif record.element_type == "table":
             # Use markdown table if available, otherwise raw text
             table_text = record.table_markdown or record.text
+            if _is_noise_fragment(table_text):
+                dropped_noise += 1
+                continue
             text_parts.append(table_text)
         else:
+            if _is_noise_fragment(record.text):
+                dropped_noise += 1
+                continue
             text_parts.append(record.text)
+
+    if dropped_noise:
+        logger.info(
+            f"records_to_parsed_document: dropped {dropped_noise} noise/placeholder "
+            f"record(s) from '{Path(source_uri).name}'"
+        )
 
     full_text = "\n\n".join(text_parts)
 
     # Derive title: use explicit page_title, or first heading, or filename
     if not page_title:
         for r in records:
-            if r.element_type == "heading" and r.text.strip():
+            if (
+                r.element_type == "heading"
+                and r.text.strip()
+                and not _is_noise_fragment(r.text, is_heading=True)
+            ):
                 page_title = r.text.strip()
                 break
         if not page_title:
@@ -239,16 +323,28 @@ def process_document_v2(
         manager.advance_stage(job_id, JobStage.NORMALIZATION.value)
         try:
             vlm = registry.get_instance("vlm_describer")
+            described = 0
             for record in records:
                 if cancel_check():
                     raise CancellationError("Cancelled during VLM enrichment")
                 if record.element_type == "image" and record.image_path:
                     image_file = Path(record.image_path)
                     if image_file.is_file():
+                        # Pace successive VLM calls to avoid tripping upstream
+                        # rate limits (e.g. OpenRouter/Alibaba 429s) on
+                        # image-heavy documents.
+                        if described and settings.visual_inter_call_delay > 0:
+                            time.sleep(settings.visual_inter_call_delay)
                         description = vlm.describe(image_file)
+                        described += 1
                         if description:
+                            # Prefer the rich VLM description over any caption
+                            # placeholder so the chunk carries real content.
                             record.text = description
         except KeyError:
+            # No VLM describer registered (OSS without a vision model). Image
+            # records keep their caption text if present, or are dropped later
+            # by records_to_parsed_document when they have no usable text.
             pass
 
         page_title = detection.metadata.get("dc:title", "") or detection.metadata.get("title", "")
@@ -303,6 +399,19 @@ def process_document_v2(
             os.remove(temp_path)
         if ocr_temp_path and os.path.exists(ocr_temp_path):
             os.remove(ocr_temp_path)
+        # Remove transient image files extracted by the parser for VLM
+        # enrichment; they have served their purpose once chunks are built.
+        for _rec in locals().get("records", []) or []:
+            try:
+                img_path = getattr(_rec, "image_path", None)
+                if (
+                    img_path
+                    and "retriva_docling_images" in img_path
+                    and os.path.exists(img_path)
+                ):
+                    os.remove(img_path)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------

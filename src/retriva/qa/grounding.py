@@ -24,7 +24,7 @@ def validate_grounding(answer: str, retrieved_chunks: List[Dict]) -> Dict:
     Post-generation grounding validation.
 
     Checks:
-    1. Citation presence  — does the answer contain [Document X] references?
+    1. Citation presence  — does the answer contain [N] references?
     2. Citation validity  — do cited numbers fall within retrieved range?
     3. Textual overlap    — do key terms from the answer appear in context?
     4. Refusal detection  — did the model correctly refuse when unsure?
@@ -35,29 +35,41 @@ def validate_grounding(answer: str, retrieved_chunks: List[Dict]) -> Dict:
     num_chunks = len(retrieved_chunks)
 
     # --- 1. Extract citations ---
-    # Match [Source Title] style (Open WebUI compatible) and legacy [Document N]
-    # Open WebUI format: any bracketed text that matches a known page title
+    # Primary format: numeric markers [N] (e.g. [1], [2]) that match the
+    # numbered source list shown to the user. We also still recognise legacy
+    # [Source Title] / [Document N] references for backward compatibility.
     known_titles = {
         chunk.get("page_title", "") for chunk in retrieved_chunks if chunk.get("page_title")
     }
     bracket_pattern = re.compile(r"\[([^\]]+)\]")
-    all_brackets = bracket_pattern.findall(answer)
+    all_brackets = [b.strip() for b in bracket_pattern.findall(answer)]
 
-    # Separate title-based citations from legacy numeric ones
     legacy_pattern = re.compile(r"Document\s+(\d+)", re.IGNORECASE)
+    numeric_citations = []
     title_citations = [b for b in all_brackets if b in known_titles]
     legacy_citations = []
     for b in all_brackets:
+        if b.isdigit():
+            numeric_citations.append(int(b))
+            continue
         m = legacy_pattern.match(b)
         if m:
             legacy_citations.append(int(m.group(1)))
 
+    unique_numeric_citations = sorted(set(numeric_citations))
     unique_title_citations = sorted(set(title_citations))
     unique_legacy_citations = sorted(set(legacy_citations))
-    has_citations = bool(unique_title_citations) or bool(unique_legacy_citations)
+    has_citations = (
+        bool(unique_numeric_citations)
+        or bool(unique_title_citations)
+        or bool(unique_legacy_citations)
+    )
 
     # --- 2. Validate citation references ---
-    invalid_citations = [n for n in unique_legacy_citations if n < 1 or n > num_chunks]
+    # Numeric and legacy [Document N] references must fall within the valid
+    # range [1..num_chunks].
+    numeric_like = unique_numeric_citations + unique_legacy_citations
+    invalid_citations = sorted({n for n in numeric_like if n < 1 or n > num_chunks})
     citations_valid = len(invalid_citations) == 0
 
     if not has_citations:
@@ -118,7 +130,11 @@ def validate_grounding(answer: str, retrieved_chunks: List[Dict]) -> Dict:
         and (overlap_score >= 0.4 or is_refusal)
     )
 
-    all_citations = unique_title_citations + [f"Document {n}" for n in unique_legacy_citations]
+    all_citations = (
+        [str(n) for n in unique_numeric_citations]
+        + unique_title_citations
+        + [f"Document {n}" for n in unique_legacy_citations]
+    )
     result = {
         "grounded": grounded,
         "citations_found": all_citations,

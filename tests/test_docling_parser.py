@@ -19,6 +19,7 @@ All tests mock the docling.DocumentConverter — no Docling models required.
 """
 
 import enum
+import os
 
 import pytest
 from unittest.mock import patch, MagicMock, PropertyMock
@@ -34,6 +35,25 @@ class _FakeDocItemLabel(str, enum.Enum):
     PARAGRAPH = "paragraph"
     TEXT = "text"
     TABLE = "table"
+    PICTURE = "picture"
+
+
+class _FakePILImage:
+    """Minimal stand-in for a PIL Image so tests need no real Pillow buffer."""
+
+    def __init__(self, size=(128, 128), mode="RGB"):
+        self.size = size
+        self.mode = mode
+        self.saved_to = None
+
+    def convert(self, mode):
+        return _FakePILImage(self.size, mode)
+
+    def save(self, path, format=None):  # noqa: A002 - mirror PIL signature
+        self.saved_to = path
+        # Write a tiny PNG-signature file so downstream is_file() checks pass.
+        with open(path, "wb") as fh:
+            fh.write(b"\x89PNG\r\n\x1a\n")
 
 
 class TestDoclingParser:
@@ -70,6 +90,30 @@ class TestDoclingParser:
         item.parent = None
         item.image = None
 
+        return item
+
+    def _mock_picture_item(self, *, pil_image=None, caption="", page_no=1):
+        """Create a mock Docling PictureItem.
+
+        ``get_image(doc)`` returns the supplied PIL stand-in (or ``None``),
+        mirroring Docling 2.x behaviour when ``generate_picture_images`` is
+        enabled (or not).
+        """
+        item = MagicMock()
+        item.label = _FakeDocItemLabel("picture")
+        item.text = ""
+        item.export_to_markdown.side_effect = AttributeError("no export_to_markdown")
+        item.get_image.return_value = pil_image
+        item.caption_text.return_value = caption
+        # No legacy ``.image.pil_image`` fallback in these tests; force None so
+        # the parser relies solely on get_image() (the Docling 2.x path).
+        item.image = None
+
+        prov_entry = MagicMock()
+        prov_entry.page_no = page_no
+        prov_entry.bbox = None
+        item.prov = [prov_entry]
+        item.parent = None
         return item
 
     @staticmethod
@@ -293,3 +337,97 @@ class TestDoclingParser:
 
         assert len(records) == 1
         assert records[0].text == "Legacy content."
+
+    # -- Fix #1: image extraction / persistence -------------------------------
+
+    @patch("retriva.ingestion.docling_parser.DoclingParser._get_converter")
+    def test_picture_image_persisted_for_vlm(self, mock_get_converter, tmp_path):
+        """A picture with a rasterized image is persisted to disk for the VLM.
+
+        Previously, pictures produced placeholder text and no image file, so
+        the VLM enrichment step was silently skipped. Now the parser writes a
+        real file and records its path in ``image_path``.
+        """
+        mock_doc = MagicMock()
+        pic = self._mock_picture_item(
+            pil_image=_FakePILImage(size=(256, 256)),
+            caption="Figure 1: Wiring diagram",
+        )
+        mock_doc.iterate_items.return_value = self._as_iterate_items([pic])
+
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+        mock_get_converter.return_value = mock_converter
+
+        f = tmp_path / "test.pdf"
+        f.write_bytes(b"content")
+
+        parser = self._make_parser()
+        parser._converter = mock_converter
+        records = parser.parse(str(f), "application/pdf")
+
+        assert len(records) == 1
+        rec = records[0]
+        assert rec.element_type == "image"
+        # The picture was persisted and the path recorded.
+        assert rec.image_path is not None
+        assert os.path.isfile(rec.image_path)
+        # The caption is kept as placeholder text until the VLM overwrites it.
+        assert rec.text == "Figure 1: Wiring diagram"
+
+        # Cleanup the temp image written by the parser.
+        os.remove(rec.image_path)
+
+    @patch("retriva.ingestion.docling_parser.DoclingParser._get_converter")
+    def test_picture_without_image_is_dropped(self, mock_get_converter, tmp_path):
+        """A picture with no rasterized image and no caption is dropped.
+
+        Without ``generate_picture_images`` (or on failure) ``get_image``
+        returns ``None``; such records would only contribute placeholder
+        noise, so the parser drops them instead of emitting a record.
+        """
+        mock_doc = MagicMock()
+        pic = self._mock_picture_item(pil_image=None, caption="")
+        mock_doc.iterate_items.return_value = self._as_iterate_items([pic])
+
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+        mock_get_converter.return_value = mock_converter
+
+        f = tmp_path / "test.pdf"
+        f.write_bytes(b"content")
+
+        parser = self._make_parser()
+        parser._converter = mock_converter
+        records = parser.parse(str(f), "application/pdf")
+
+        assert len(records) == 0
+
+    @patch("retriva.ingestion.docling_parser.DoclingParser._get_converter")
+    def test_tiny_picture_skipped(self, mock_get_converter, tmp_path):
+        """Images below the minimum-area threshold (icons, rules) are skipped."""
+        from retriva.config import settings
+
+        mock_doc = MagicMock()
+        # 8x8 = 64px, far below the default 64*64 threshold.
+        pic = self._mock_picture_item(pil_image=_FakePILImage(size=(8, 8)), caption="")
+        mock_doc.iterate_items.return_value = self._as_iterate_items([pic])
+
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_converter = MagicMock()
+        mock_converter.convert.return_value = mock_result
+        mock_get_converter.return_value = mock_converter
+
+        f = tmp_path / "test.pdf"
+        f.write_bytes(b"content")
+
+        parser = self._make_parser()
+        parser._converter = mock_converter
+        records = parser.parse(str(f), "application/pdf")
+
+        assert len(records) == 0

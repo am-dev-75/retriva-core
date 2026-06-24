@@ -12,23 +12,48 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from typing import List, Dict
+
+
+def _citation_label(chunk: Dict) -> str:
+    """
+    Return the canonical source label for a chunk.
+
+    This MUST match the label used when building citations in
+    ``chat_completions._build_citations`` (which uses ``filename``, falling
+    back to the basename of ``source_path``).  Keeping the two in sync is what
+    lets the post-processor map a bracketed reference back to a numbered
+    citation chip.
+    """
+    label = chunk.get("filename")
+    if not label:
+        path = chunk.get("source_path", "unknown")
+        label = Path(path).name
+        if label == "unknown":
+            label = chunk.get("page_title") or "Unknown Source"
+    return label
+
 
 def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:
     """
     Builds the grounded system prompt with Open WebUI-compatible citations.
 
-    Open WebUI parses bracketed references (e.g. ``[Page Title]``) from the
-    LLM response text and turns them into clickable citation chips.  To make
-    this work the context blocks must carry identifiable source labels and
-    the LLM must be instructed to reference those labels.
+    The LLM is instructed to cite sources using a numeric ``[N]`` marker that
+    matches the numbered source list shown both in the prompt and in the
+    rendered "Sources" list.  The downstream post-processor
+    (``_build_citation_refs`` / the streaming bracket parser) maps those
+    markers to clickable citation chips.  Numbering here is grouped by the
+    same key (the citation label) and order used by ``_build_citations`` so
+    that source ``[N]`` in the body always lines up with ``[N]`` in the list.
     """
-    # Group chunks by title to avoid duplicate source IDs in the prompt
+    # Group chunks by citation label (filename) to keep the numbering aligned
+    # with the citation list rendered to the user.
     grouped = {}
     for chunk in retrieved_chunks:
-        title = chunk.get("page_title", "Unknown Page")
-        if title not in grouped:
-            grouped[title] = {
+        label = _citation_label(chunk)
+        if label not in grouped:
+            grouped[label] = {
                 "url": chunk.get("canonical_doc_id", chunk.get("source_path", "")),
                 "texts": [chunk.get("text", "")],
                 "user_metadata": chunk.get("user_metadata", {})
@@ -36,22 +61,22 @@ def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:
         else:
             # Only add if text is not exactly the same
             new_text = chunk.get("text", "")
-            if new_text not in grouped[title]["texts"]:
-                grouped[title]["texts"].append(new_text)
+            if new_text not in grouped[label]["texts"]:
+                grouped[label]["texts"].append(new_text)
             
             # Merge metadata
             meta = chunk.get("user_metadata", {})
             if meta:
-                if not grouped[title].get("user_metadata"):
-                    grouped[title]["user_metadata"] = {}
-                grouped[title]["user_metadata"].update(meta)
+                if not grouped[label].get("user_metadata"):
+                    grouped[label]["user_metadata"] = {}
+                grouped[label]["user_metadata"].update(meta)
 
     context_str = ""
     source_list = ""
-    for title, data in grouped.items():
+    for idx, (label, data) in enumerate(grouped.items()):
+        citation_number = idx + 1
         url = data["url"]
         combined_text = "\n\n---\n\n".join(data["texts"])
-        source_id = f"[{title}]"
         
         meta_str = ""
         user_metadata = data.get("user_metadata")
@@ -60,16 +85,17 @@ def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:
             for k, v in user_metadata.items():
                 meta_str += f"- {k}: {v}\n"
         
-        # Build context block with unique source tag
+        # Build context block tagged with the numeric citation marker so the
+        # model can reference it directly as [N].
         context_str += (
-            f"\n<source id=\"{title}\">\n"
-            f"Source: {title}\n"
+            f"\n<source id=\"{citation_number}\">\n"
+            f"[{citation_number}] {label}\n"
             f"URL: {url}\n"
             f"{meta_str}"
             f"{combined_text}\n"
             f"</source>\n"
         )
-        source_list += f"  - {source_id}\n"
+        source_list += f"  - [{citation_number}] {label}\n"
 
     system_prompt = f"""You are Retriva, a Precision Technical Documentation Assistant.
 Your goal is to provide factually dense, highly nuanced, and strictly grounded answers.
@@ -87,7 +113,9 @@ ANSWERING RULES:
 5. NUANCE: Use "Note:" or "Caveat:" sections to discuss data points that are mentioned in the context but whose attribution to the subject is ambiguous or uncertain.
 
 CITATION RULES:
-- Use the format [Source Title] for every factual claim.
+- Cite every factual claim using the numeric marker of the source it comes from, in square brackets, e.g. [1] or [2].
+- Always use this numeric [N] format, using the exact number shown for each source below. Multiple sources may be cited together, e.g. [1][3].
+- Do NOT invent descriptive labels such as [SERVICE MANUAL] or [DATASHEET]; only the numeric form is allowed.
 - Available sources:
 {source_list}
 

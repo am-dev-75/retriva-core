@@ -14,8 +14,12 @@
 
 import base64
 import mimetypes
+import random
+import time
 from pathlib import Path
+from typing import Optional
 from openai import OpenAI
+from openai import APIStatusError, APIConnectionError, APITimeoutError, RateLimitError
 from retriva.config import settings
 from retriva.logger import get_logger
 
@@ -91,34 +95,77 @@ def describe_image(image_path: Path) -> str:
         logger.warning(f"Failed to read/encode image {image_path}: {e}")
         return ""
 
-    try:
-        client = OpenAI(
-            api_key=settings.visual_openai_api_key,
-            base_url=settings.visual_base_url,
-        )
-        response = client.chat.completions.create(
-            model=settings.visual_model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": VLM_PROMPT},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": data_uri},
-                        },
-                    ],
-                }
+    client = OpenAI(
+        api_key=settings.visual_openai_api_key,
+        base_url=settings.visual_base_url,
+    )
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": VLM_PROMPT},
+                {"type": "image_url", "image_url": {"url": data_uri}},
             ],
-            max_tokens=settings.visual_max_tokens,
-            temperature=settings.visual_temperature,
-        )
-        description = response.choices[0].message.content.strip()
-        logger.debug(f"VLM described {image_path.name} ({len(description)} chars)")
-        return description
-    except Exception as e:
-        logger.warning(f"VLM call failed for {image_path}: {e}")
-        return ""
+        }
+    ]
+
+    max_retries = max(0, settings.visual_max_retries)
+    base_delay = max(0.0, settings.visual_retry_base_delay)
+    max_delay = max(base_delay, settings.visual_retry_max_delay)
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.chat.completions.create(
+                model=settings.visual_model,
+                messages=messages,
+                max_tokens=settings.visual_max_tokens,
+                temperature=settings.visual_temperature,
+            )
+            description = response.choices[0].message.content.strip()
+            logger.debug(f"VLM described {image_path.name} ({len(description)} chars)")
+            return description
+        except Exception as e:
+            # Decide whether this error is worth retrying. Rate limits (429)
+            # and transient connection/timeout errors are; anything else
+            # (bad request, auth, unsupported image) is not.
+            status_code = getattr(e, "status_code", None)
+            retryable = isinstance(
+                e, (RateLimitError, APIConnectionError, APITimeoutError)
+            ) or (isinstance(e, APIStatusError) and status_code in (429, 500, 502, 503, 504))
+
+            if retryable and attempt < max_retries:
+                # Exponential backoff with jitter, honouring Retry-After when present.
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                retry_after = _retry_after_seconds(e)
+                if retry_after is not None:
+                    delay = max(delay, retry_after)
+                delay += random.uniform(0, base_delay)
+                logger.warning(
+                    f"VLM call rate-limited/transient error for {image_path.name} "
+                    f"(attempt {attempt + 1}/{max_retries + 1}); retrying in {delay:.1f}s: {e}"
+                )
+                time.sleep(delay)
+                continue
+
+            logger.warning(f"VLM call failed for {image_path}: {e}")
+            return ""
+
+    return ""
+
+
+def _retry_after_seconds(exc: Exception) -> Optional[float]:
+    """Extract a Retry-After hint (seconds) from an OpenAI/HTTP error, if any."""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) if response is not None else None
+    if not headers:
+        return None
+    value = headers.get("retry-after") or headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class DefaultVLMDescriber:

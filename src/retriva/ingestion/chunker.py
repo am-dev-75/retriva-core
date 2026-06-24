@@ -45,39 +45,46 @@ def _extract_heading_text(paragraph: str) -> str:
 def _merge_heading_paragraphs(paragraphs: List[str]) -> List[Tuple[str, str]]:
     """Merge heading paragraphs with the body paragraphs that follow them.
 
-    Returns a list of ``(section_heading, text)`` tuples.  When a heading
-    is encountered it is absorbed into the next body paragraph rather than
-    emitted as a standalone micro-chunk.  If no heading is active the
-    ``section_heading`` is ``""``.
+    Returns a list of ``(section_heading, text)`` tuples.
+
+    A run of *consecutive* headings (very common in extracted PDFs, e.g.
+    ``# 3.3 CHECKPOINTS`` immediately followed by ``# 3.3.1 Power Supply``)
+    is accumulated together and attached to the next body paragraph, so we
+    never emit orphaned heading-only micro-chunks. The ``section_heading``
+    reported for the merged chunk is the *deepest* (most specific) heading in
+    the run, which best identifies the content that follows.
 
     For content without markdown headings (e.g. MediaWiki plaintext) every
     tuple will have ``section_heading == ""``, preserving current behaviour.
     """
     result: List[Tuple[str, str]] = []
-    current_heading = ""
-    pending_heading_text = ""  # raw heading paragraph waiting for a body
+    pending_heading_lines: List[str] = []  # raw heading lines awaiting a body
+    current_section = ""                    # most recent (deepest) heading text
 
     for para in paragraphs:
         if _is_heading(para):
-            # If there was already a pending heading with no body, emit it
-            # as a standalone chunk (rare edge case: consecutive headings).
-            if pending_heading_text:
-                result.append((current_heading, pending_heading_text))
-
-            current_heading = _extract_heading_text(para)
-            pending_heading_text = para  # keep the raw markdown line
+            # Accumulate consecutive headings instead of flushing each one,
+            # so we never emit orphaned heading-only micro-chunks. The most
+            # recent heading becomes the active section.
+            pending_heading_lines.append(para)
+            current_section = _extract_heading_text(para)
         else:
-            if pending_heading_text:
-                # Merge the heading line with the following body paragraph
-                merged = f"{pending_heading_text}\n\n{para}"
-                result.append((current_heading, merged))
-                pending_heading_text = ""
+            if pending_heading_lines:
+                # Merge ALL accumulated heading lines with this body paragraph.
+                merged = "\n\n".join(pending_heading_lines + [para])
+                result.append((current_section, merged))
+                pending_heading_lines = []
             else:
-                result.append((current_heading, para))
+                # No pending headings: this body paragraph still belongs to the
+                # currently active section (e.g. the 2nd+ paragraph under a
+                # heading), so it inherits ``current_section``.
+                result.append((current_section, para))
 
-    # Flush any trailing heading that had no body after it
-    if pending_heading_text:
-        result.append((current_heading, pending_heading_text))
+    # Flush any trailing heading run that had no body after it (so trailing
+    # section titles are not silently lost), as a single combined chunk.
+    if pending_heading_lines:
+        merged = "\n\n".join(pending_heading_lines)
+        result.append((current_section, merged))
 
     return result
 

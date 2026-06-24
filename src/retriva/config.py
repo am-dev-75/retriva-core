@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     visual_openai_api_key: Optional[str] = None
     visual_max_tokens: int = 2048
     visual_temperature: float = 0.0
+    # Resilience controls for the VLM image-description calls. Vision models
+    # routed through OpenRouter (e.g. qwen/qwen3-vl-*) are frequently
+    # rate-limited upstream (HTTP 429). Without retries a transient 429
+    # silently discards a figure's description; without pacing the tight
+    # enrichment loop *triggers* the throttling. These settings make the
+    # behaviour explicit and tunable.
+    visual_max_retries: int = 5            # extra attempts on 429 / transient errors
+    visual_retry_base_delay: float = 2.0   # seconds; doubled each retry (capped)
+    visual_retry_max_delay: float = 60.0   # seconds; ceiling for backoff
+    visual_inter_call_delay: float = 0.0   # seconds to sleep between images (pacing)
     
     # Chat model
     chat_base_url: str = "https://openrouter.ai/api/v1"
@@ -94,6 +104,18 @@ class Settings(BaseSettings):
     ocrmypdf_force_ocr: bool = True
     v2_primary_parser: str = "docling"
     accelerator_device: str = "cpu"  # cpu, cuda, mps, auto
+
+    # Docling image extraction (enables VLM enrichment of figures/diagrams).
+    # When enabled, Docling rasterizes page pictures so they can be persisted
+    # to disk and described by the visual model. Disable to save CPU/time on
+    # text-only corpora.
+    docling_generate_picture_images: bool = True
+    # Upscale factor for rasterized images (1.0 = native). Higher values give
+    # the VLM more legible figures at the cost of memory/latency.
+    docling_images_scale: float = 2.0
+    # Skip describing tiny images (icons, bullets, rule lines) that carry no
+    # retrievable content. Value is the minimum width*height in pixels.
+    docling_min_picture_area_px: int = 64 * 64
 
     # OpenAI-compatible API (for Open WebUI)
     openai_api_port: int = 8001

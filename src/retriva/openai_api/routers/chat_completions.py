@@ -140,7 +140,8 @@ def _build_citation_refs(answer: str, citations: list[Citation]) -> tuple[str, s
                     title_to_idx[pt] = i
                     title_to_idx[pt.lower()] = i
 
-    # Regex to find [Title]
+    # Regex to find [Marker] — either a numeric reference [N] (preferred) or a
+    # legacy [Title] reference.
     pattern = r'\[([^\]]+)\]'
     
     clean_text = ""
@@ -151,9 +152,16 @@ def _build_citation_refs(answer: str, citations: list[Citation]) -> tuple[str, s
     current_clean_index = 0
     
     for match in re.finditer(pattern, answer):
-        raw_title = match.group(1)
-        # Try exact, then lowercase
-        citation_idx = title_to_idx.get(raw_title)
+        raw_title = match.group(1).strip()
+        # Preferred path: a numeric marker [N] maps directly to citation N-1.
+        citation_idx = None
+        if raw_title.isdigit():
+            n = int(raw_title)
+            if 1 <= n <= len(citations):
+                citation_idx = n - 1
+        # Fallback: legacy [Title] / [Filename] references.
+        if citation_idx is None:
+            citation_idx = title_to_idx.get(raw_title)
         if citation_idx is None:
             citation_idx = title_to_idx.get(raw_title.lower())
             
@@ -413,9 +421,18 @@ async def _handle_streaming(
                             buffer += char
                             if char == ']':
                                 inside_bracket = False
-                                content = buffer[1:-1].strip().lower()
-                                citation_idx = title_to_idx.get(content)
+                                raw_content = buffer[1:-1].strip()
+                                content = raw_content.lower()
+                                citation_idx = None
+                                # Preferred path: numeric marker [N] -> citation N-1.
+                                if raw_content.isdigit():
+                                    n = int(raw_content)
+                                    if 1 <= n <= len(citations):
+                                        citation_idx = n - 1
+                                # Fallback: legacy [Title] / [Filename] reference.
                                 if citation_idx is None:
+                                    citation_idx = title_to_idx.get(content)
+                                if citation_idx is None and content:
                                     # Fuzzy match
                                     for t, i in title_to_idx.items():
                                         if content in t or t in content:

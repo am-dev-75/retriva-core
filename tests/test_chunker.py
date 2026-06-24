@@ -144,26 +144,36 @@ class TestMergeHeadingParagraphs:
         for heading, _ in result:
             assert heading == ""
 
-    def test_consecutive_headings(self):
-        """Two headings with no body between them — first is emitted standalone."""
+    def test_consecutive_headings_merged_into_one_chunk(self):
+        """Consecutive headings are accumulated and attached to the next body.
+
+        Regression for orphan heading-only micro-chunks: a run of headings
+        (e.g. ``3.3`` immediately followed by ``3.3.1``) must NOT produce a
+        standalone heading chunk. They are merged together with the following
+        body paragraph, and the reported section is the deepest heading.
+        """
         paragraphs = [
             "## First Heading",
             "## Second Heading",
             "Body under second heading.",
         ]
         result = _merge_heading_paragraphs(paragraphs)
-        # First heading emitted standalone, second merged with body
-        assert len(result) == 2
-        # First: standalone heading
-        h1, t1 = result[0]
-        assert "First Heading" in h1 or "First Heading" in t1
-        # Second: merged with body
-        h2, t2 = result[1]
-        assert h2 == "Second Heading"
-        assert "Body under second heading." in t2
+        # Single merged chunk — no orphan heading-only chunk.
+        assert len(result) == 1
+        heading, text = result[0]
+        # Deepest (last) heading identifies the section.
+        assert heading == "Second Heading"
+        # Both heading lines and the body are present in the merged text.
+        assert "## First Heading" in text
+        assert "## Second Heading" in text
+        assert "Body under second heading." in text
 
     def test_heading_at_end_without_body(self):
-        """A heading at the very end with no following body is emitted as-is."""
+        """A heading at the very end with no following body is still emitted.
+
+        This is the only case where a heading-only chunk is allowed, so a
+        trailing section title is not silently lost.
+        """
         paragraphs = [
             "Some text.",
             "## Trailing Heading",
@@ -173,8 +183,25 @@ class TestMergeHeadingParagraphs:
         # First item is plain text
         assert result[0][0] == ""
         assert result[0][1] == "Some text."
-        # Second is the orphaned heading
+        # Second is the (trailing) heading, kept so it is not lost.
         assert result[1][0] == "Trailing Heading"
+        assert "## Trailing Heading" in result[1][1]
+
+    def test_run_of_three_headings_merged(self):
+        """A realistic run: section, subsection, sub-subsection then body."""
+        paragraphs = [
+            "## 3.3 CHECKPOINTS WHEN PERFORMING ON-SITE SERVICE",
+            "### 3.3.1 Power Supply",
+            "#### (3) Safety Checkpoints",
+            "Verify the protective earth connection before powering on.",
+        ]
+        result = _merge_heading_paragraphs(paragraphs)
+        assert len(result) == 1
+        heading, text = result[0]
+        assert heading == "(3) Safety Checkpoints"
+        assert "3.3 CHECKPOINTS" in text
+        assert "3.3.1 Power Supply" in text
+        assert "Verify the protective earth connection" in text
 
     def test_body_after_heading_inherits_section(self):
         """Body paragraphs after a heading (even non-adjacent) carry the section."""

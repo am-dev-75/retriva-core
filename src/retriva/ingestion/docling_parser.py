@@ -20,14 +20,22 @@ parsing of PDFs, DOCX, PPTX, HTML, and other document formats.  Emits
 ``CanonicalRecord`` objects for downstream normalization.
 """
 
-from pathlib import Path
+import os
+import tempfile
 import threading
+import uuid
+from pathlib import Path
 from typing import Callable, List, Optional
 
 from retriva.domain.models import CanonicalRecord
 from retriva.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Directory under which extracted page images are persisted so that the
+# NORMALIZATION stage (VLM describer) can read them back. Files here are
+# transient; the pipeline removes them after enrichment.
+_IMAGE_TMP_PREFIX = "retriva_docling_img_"
 
 # Docling element types → our canonical element_type mapping
 _ELEMENT_TYPE_MAP = {
@@ -79,6 +87,18 @@ class DoclingParser:
                     pipeline_options.num_threads = 2
                 except Exception:
                     pass
+
+                # Enable picture rasterization so figures/diagrams can be
+                # persisted and handed to the VLM describer. Without this,
+                # Docling emits picture placeholders with no usable image and
+                # the VLM enrichment step is silently skipped.
+                try:
+                    if settings.docling_generate_picture_images:
+                        pipeline_options.generate_picture_images = True
+                        pipeline_options.images_scale = settings.docling_images_scale
+                except Exception as e:
+                    logger.debug(f"Could not enable picture image generation: {e}")
+
                 try:
                     pipeline_options.accelerator_options.device = device
                 except AttributeError:
@@ -87,6 +107,12 @@ class DoclingParser:
                     pipeline_options = PdfPipelineOptions(device=device)
                     try:
                         pipeline_options.num_threads = 2
+                    except Exception:
+                        pass
+                    try:
+                        if settings.docling_generate_picture_images:
+                            pipeline_options.generate_picture_images = True
+                            pipeline_options.images_scale = settings.docling_images_scale
                     except Exception:
                         pass
 
@@ -227,7 +253,26 @@ class DoclingParser:
             if isinstance(result, str) and result.strip():
                 text = result
 
-        if not text or not text.strip():
+        # Image handling — persist the rasterized picture to a temp file so the
+        # NORMALIZATION stage can run the VLM describer over an actual file.
+        # Done before the empty-text guard because an image item legitimately
+        # has no text yet (the VLM fills it in during NORMALIZATION).
+        image_path = None
+        if element_type == "image":
+            image_path = self._persist_item_image(item, doc)
+            # If the picture has a caption, keep it as the placeholder text so
+            # the chunk still carries some context even if the VLM is disabled
+            # or fails. The VLM description (if any) overwrites this later.
+            caption = self._extract_caption(item, doc)
+            if caption:
+                text = caption
+
+        # Image items are kept as long as we persisted an image; all other
+        # element types require non-empty text.
+        if element_type == "image":
+            if not image_path:
+                return None
+        elif not text or not text.strip():
             return None
 
         # Page number
@@ -272,24 +317,23 @@ class DoclingParser:
         table_html = None
         if element_type == "table":
             table_markdown = text
+            # Docling 2.x deprecates ``export_to_html()`` without the ``doc``
+            # argument (it floods the logs at ERROR level). Pass ``doc`` first
+            # and only fall back to the no-arg form on older versions.
             try:
-                table_html = item.export_to_html()
-            except (AttributeError, Exception):
+                table_html = item.export_to_html(doc)
+            except (TypeError, AttributeError):
+                try:
+                    table_html = item.export_to_html()
+                except Exception:
+                    pass
+            except Exception:
                 pass
-
-        # Image handling
-        image_path = None
-        if element_type == "image":
-            image_ref = getattr(item, "image", None)
-            if image_ref is not None:
-                img_path = getattr(image_ref, "uri", None) or getattr(image_ref, "path", None)
-                if img_path:
-                    image_path = str(img_path)
 
         return CanonicalRecord(
             document_id=source,
             element_type=element_type,
-            text=text.strip(),
+            text=(text or "").strip(),
             page=page,
             bbox=bbox,
             heading_path=heading_path,
@@ -299,6 +343,69 @@ class DoclingParser:
             parser_name="docling",
             image_path=image_path,
         )
+
+    def _extract_caption(self, item, doc) -> str:
+        """Return a picture/table caption if Docling extracted one."""
+        try:
+            caption = item.caption_text(doc)
+            if isinstance(caption, str) and caption.strip():
+                return caption.strip()
+        except (AttributeError, TypeError, Exception):
+            pass
+        return ""
+
+    def _persist_item_image(self, item, doc) -> Optional[str]:
+        """Rasterize a Docling picture item and persist it to a temp PNG file.
+
+        Returns the absolute path to the written image, or ``None`` if no
+        usable image is available (picture image generation disabled, image
+        too small, or any failure). Returning ``None`` causes the caller to
+        drop the image record instead of emitting a useless placeholder.
+        """
+        from retriva.config import settings
+
+        # Obtain a PIL image. ``get_image(doc)`` is the Docling 2.x API and
+        # requires ``generate_picture_images=True`` in the pipeline options.
+        pil_image = None
+        try:
+            pil_image = item.get_image(doc)
+        except (AttributeError, TypeError, Exception):
+            pil_image = None
+
+        # Fallback: older Docling exposes a pre-rendered ``.image.pil_image``.
+        if pil_image is None:
+            image_ref = getattr(item, "image", None)
+            pil_image = getattr(image_ref, "pil_image", None) if image_ref is not None else None
+
+        if pil_image is None:
+            return None
+
+        # Skip images too small to carry retrievable content (icons, rules).
+        try:
+            width, height = pil_image.size
+            if width * height < settings.docling_min_picture_area_px:
+                logger.debug(
+                    f"Skipping tiny image ({width}x{height}px, below "
+                    f"{settings.docling_min_picture_area_px}px threshold)"
+                )
+                return None
+        except Exception:
+            pass
+
+        # Persist as PNG to a stable temp directory.
+        try:
+            tmp_dir = os.path.join(tempfile.gettempdir(), "retriva_docling_images")
+            os.makedirs(tmp_dir, exist_ok=True)
+            filename = f"{_IMAGE_TMP_PREFIX}{uuid.uuid4().hex}.png"
+            out_path = os.path.join(tmp_dir, filename)
+            # Normalize mode so PNG encoding always succeeds (e.g. CMYK/P).
+            if pil_image.mode not in ("RGB", "RGBA", "L"):
+                pil_image = pil_image.convert("RGB")
+            pil_image.save(out_path, format="PNG")
+            return out_path
+        except Exception as e:
+            logger.warning(f"Failed to persist Docling image: {e}")
+            return None
 
 
 # ---------------------------------------------------------------------------
