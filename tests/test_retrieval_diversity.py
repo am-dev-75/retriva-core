@@ -37,10 +37,11 @@ def mock_chunks():
 @patch("retriva.qa.retriever.get_client")
 @patch("retriva.qa.retriever.search_chunks")
 @patch("retriva.qa.retriever.get_embeddings")
-def test_retrieval_diversity_cap_respected(mock_embeddings, mock_search, mock_client, mock_chunks):
-    """Case B: Verify that max_chunks_per_doc is respected."""
-    # 1. Setup mock data: 10 chunks from the same doc
-    all_chunks = mock_chunks("large_doc.pdf", 10)
+def test_retrieval_diversity_cap_respected_multi_doc(mock_embeddings, mock_search, mock_client, mock_chunks):
+    """Case B: Verify that max_chunks_per_doc is respected when >1 doc present."""
+    # 1. Setup mock data: 10 chunks from one doc + 1 chunk from a second doc,
+    #    so the single-doc bypass does NOT apply and the cap is enforced.
+    all_chunks = mock_chunks("large_doc.pdf", 10) + mock_chunks("other.pdf", 1, base_score=0.5)
     mock_search.return_value = all_chunks
     mock_embeddings.return_value = [[0.1] * 1024]
     
@@ -56,10 +57,38 @@ def test_retrieval_diversity_cap_respected(mock_embeddings, mock_search, mock_cl
         hybrid_selection=False
     )
     
-    # Even though top_k=5, we only expect 3 chunks because they all belong to the same doc
-    assert len(results) == 3
-    for res in results:
-        assert res["doc_id"] == "large_doc.pdf"
+    # large_doc.pdf is capped at 3; other.pdf contributes its single chunk.
+    doc_ids = [r["doc_id"] for r in results]
+    assert doc_ids.count("large_doc.pdf") == 3
+    assert doc_ids.count("other.pdf") == 1
+    assert len(results) == 4
+
+
+@patch("retriva.qa.retriever.get_client")
+@patch("retriva.qa.retriever.search_chunks")
+@patch("retriva.qa.retriever.get_embeddings")
+def test_retrieval_single_doc_bypasses_diversity_cap(mock_embeddings, mock_search, mock_client, mock_chunks):
+    """Single-document corpus: the per-doc cap is skipped so the reranker's
+    top chunks are preserved up to top_k (regression test for topic drift
+    caused by capping a single-doc pool at max_chunks_per_doc)."""
+    all_chunks = mock_chunks("only_doc.pdf", 10)
+    mock_search.return_value = all_chunks
+    mock_embeddings.return_value = [[0.1] * 1024]
+
+    retriever = DefaultRetriever()
+
+    top_k = 5
+    results = retriever.retrieve(
+        query="test query",
+        top_k=top_k,
+        metadata_filter_mode="hard",
+        rerank=False,
+        hybrid_selection=False
+    )
+
+    # With only one document, we keep top_k chunks instead of capping at 3.
+    assert len(results) == top_k
+    assert all(r["doc_id"] == "only_doc.pdf" for r in results)
 
 @patch("retriva.qa.retriever.get_client")
 @patch("retriva.qa.retriever.search_chunks")
@@ -128,8 +157,9 @@ def test_retrieval_fetch_k_is_increased(mock_embeddings, mock_search, mock_clien
 @patch("retriva.qa.retriever.search_chunks")
 @patch("retriva.qa.retriever.get_embeddings")
 def test_retrieval_soft_mode_now_has_diversity(mock_embeddings, mock_search, mock_client, mock_chunks):
-    """Verify that soft mode now ALSO applies diversity filtering."""
-    all_chunks = mock_chunks("large_doc.pdf", 10)
+    """Verify that soft mode also applies diversity filtering for multi-doc pools."""
+    # Two docs so the single-doc bypass does not apply.
+    all_chunks = mock_chunks("large_doc.pdf", 10) + mock_chunks("other.pdf", 1, base_score=0.5)
     mock_search.return_value = all_chunks
     mock_embeddings.return_value = [[0.1] * 1024]
     
@@ -145,6 +175,8 @@ def test_retrieval_soft_mode_now_has_diversity(mock_embeddings, mock_search, moc
         hybrid_selection=False
     )
     
-    # Now in soft mode, diversity IS applied, so we get capped at 3
-    assert len(results) == 3
-    assert all(r["doc_id"] == "large_doc.pdf" for r in results)
+    # Diversity IS applied in soft mode too: large_doc.pdf capped at 3.
+    doc_ids = [r["doc_id"] for r in results]
+    assert doc_ids.count("large_doc.pdf") == 3
+    assert doc_ids.count("other.pdf") == 1
+    assert len(results) == 4

@@ -19,6 +19,7 @@ Handles MIME detection, metadata extraction, and fallback text
 extraction via an Apache Tika server (typically a Docker sidecar).
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
@@ -28,6 +29,51 @@ from retriva.config import settings
 from retriva.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Token shape used by the text-quality heuristic: a "word" is a run of letters
+# (optionally with an internal apostrophe/hyphen).
+_RE_WORD = re.compile(r"[A-Za-z\u00C0-\u024F]+(?:['\-][A-Za-z\u00C0-\u024F]+)*")
+_RE_VOWEL = re.compile(r"[aeiouyAEIOUY\u00C0-\u024F]")
+
+
+def score_text_quality(text: str, sample_chars: int = 4000) -> float:
+    """Return a 0..1 score estimating how "word-like" *text* is.
+
+    A garbled/corrupt text layer (e.g. ``edOtLo``, ``PCATTL``, ``ANWARNING``)
+    yields a low score; clean prose yields a high score. The score is the
+    fraction of sampled word tokens that look like plausible words, judged by
+    cheap language-agnostic shape checks (contains a vowel, not absurdly long,
+    reasonable consonant runs). No dictionary or network call is involved.
+
+    Returns ``1.0`` for text with no analysable word tokens so that callers
+    never re-OCR purely on the basis of "no words found" (that case is handled
+    by the scanned-PDF heuristic instead).
+    """
+    if not text:
+        return 1.0
+    sample = text[:sample_chars]
+    words = _RE_WORD.findall(sample)
+    # Only consider tokens of length >= 2; single letters are usually fine
+    # (articles, initials) and add noise to the ratio.
+    words = [w for w in words if len(w) >= 2]
+    if len(words) < 5:
+        return 1.0
+
+    plausible = 0
+    for w in words:
+        lw = w.lower()
+        # 1. Must contain a vowel — vowel-less runs like "pcattl" are garble.
+        if not _RE_VOWEL.search(lw):
+            continue
+        # 2. No run of 4+ consecutive consonants (e.g. "ndlkr").
+        if re.search(r"[bcdfghjklmnpqrstvwxz]{4,}", lw):
+            continue
+        # 3. Reasonable length — extremely long tokens are usually merged garble.
+        if len(lw) > 24:
+            continue
+        plausible += 1
+
+    return plausible / len(words)
 
 # Metadata keys that hint at a scanned (image-only) PDF
 _TEXT_INDICATOR_KEYS = {
@@ -45,6 +91,12 @@ class TikaDetectionResult:
     metadata: Dict[str, str] = field(default_factory=dict)
     language: Optional[str] = None
     is_scanned: bool = False
+    # True when the PDF has an embedded text layer that is present but garbled
+    # (low quality), so it should be re-OCR'd even though ``is_scanned`` is
+    # False. Computed by the text-quality heuristic in ``detect()``.
+    low_text_quality: bool = False
+    # The computed quality score (0..1), exposed for logging/diagnostics.
+    text_quality_score: float = 1.0
 
 
 class TikaClient:
@@ -196,11 +248,34 @@ class TikaClient:
         if is_scanned:
             logger.info(f"Tika detected scanned PDF: '{file_path}'")
 
+        # Text-quality heuristic: detect a present-but-garbled embedded text
+        # layer that the scanned heuristic misses. Only meaningful for PDFs
+        # that were NOT already flagged as scanned (those will be OCR'd anyway).
+        low_text_quality = False
+        text_quality_score = 1.0
+        if (
+            settings.ocr_redo_low_quality
+            and content_type == "application/pdf"
+            and not is_scanned
+        ):
+            sample_text = self.extract_text(file_path)
+            if len(sample_text) >= settings.ocr_text_quality_min_chars:
+                text_quality_score = score_text_quality(sample_text)
+                if text_quality_score < settings.ocr_text_quality_threshold:
+                    low_text_quality = True
+                    logger.info(
+                        f"Tika detected low-quality text layer "
+                        f"(score={text_quality_score:.2f} < "
+                        f"{settings.ocr_text_quality_threshold}): '{file_path}'"
+                    )
+
         return TikaDetectionResult(
             content_type=content_type,
             metadata=metadata,
             language=language,
             is_scanned=is_scanned,
+            low_text_quality=low_text_quality,
+            text_quality_score=text_quality_score,
         )
 
 

@@ -76,7 +76,12 @@ class DeduplicationStore:
     def __init__(self, catalog_path: Optional[str] = None):
         if catalog_path is None:
             from retriva.config import settings
-            storage_dir = getattr(settings, "storage_dir", "storage")
+            # Use the canonical, absolute storage location. The setting is
+            # named ``storage_path`` (an absolute path); the previous lookup
+            # of the non-existent ``storage_dir`` fell back to a relative
+            # "storage" dir resolved against the process CWD, which is
+            # fragile (works only when CWD happens to be the app root).
+            storage_dir = getattr(settings, "storage_path", None) or "storage"
             catalog_path = os.path.join(storage_dir, "dedup_catalog.json")
 
         self._path = Path(catalog_path)
@@ -183,6 +188,24 @@ class DeduplicationStore:
                     self._write_raw(data)
                     return
         raise KeyError(f"DocRecord not found for doc_id={doc_id}")
+
+    def delete_by_doc_id(self, doc_id: str) -> bool:
+        """Remove the record for ``doc_id``. Returns True if a record was
+        removed, False if none matched.
+
+        Used to clean up after a failed/empty ingestion so the (kb_id,
+        content_hash, collection) key does not block a later retry by being
+        mistaken for an already-ingested document.
+        """
+        with self._lock:
+            data = self._read_raw()
+            records = data.get("records", [])
+            kept = [r for r in records if r.get("doc_id") != doc_id]
+            removed = len(records) - len(kept)
+            if removed:
+                data["records"] = kept
+                self._write_raw(data)
+        return removed > 0
 
     # -- KB cascade ---------------------------------------------------------
 

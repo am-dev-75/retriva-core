@@ -81,12 +81,35 @@ def _hybrid_select_if_enabled(
     )
 
 
+def _distinct_doc_count(chunks: List[Dict]) -> int:
+    """Return the number of distinct documents represented in *chunks*."""
+    docs = set()
+    for chunk in chunks:
+        docs.add(chunk.get("doc_id") or chunk.get("source_path"))
+    return len(docs)
+
+
 def _apply_diversity_filter(chunks: List[Dict], max_per_doc: int) -> List[Dict]:
     """Group chunks by doc_id and keep only top N per document.
 
     Assumes chunks are already sorted by score (relevance).
+
+    When the pool contains only a single distinct document the per-document
+    cap is a no-op by design (there is nothing to diversify against) and is
+    skipped if ``retrieval_single_doc_bypass_diversity`` is enabled, so the
+    reranker's full ordering is preserved for single-document corpora.
     """
     if not chunks or max_per_doc <= 0:
+        return chunks
+
+    if (
+        settings.retrieval_single_doc_bypass_diversity
+        and _distinct_doc_count(chunks) <= 1
+    ):
+        logger.info(
+            "Diversity filter: single-document pool detected — skipping "
+            "per-doc cap to preserve reranked ordering."
+        )
         return chunks
 
     doc_counts = {}  # doc_id -> count

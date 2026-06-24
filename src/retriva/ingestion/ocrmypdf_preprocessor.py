@@ -56,14 +56,21 @@ class OCRmyPDFPreprocessor:
             detection: A ``TikaDetectionResult`` from the DETECTING stage.
 
         Returns:
-            ``True`` if the document is a scanned PDF and OCR is enabled.
+            ``True`` if OCR is enabled and the PDF is either scanned
+            (no usable text layer) OR has a present-but-garbled text layer
+            (``low_text_quality``). The latter requires ``force_ocr`` so that
+            OCRmyPDF replaces the corrupt text layer instead of skipping pages
+            that already contain text.
         """
         if not self.enabled:
             return False
-        return (
-            getattr(detection, "content_type", "") == "application/pdf"
-            and getattr(detection, "is_scanned", False)
-        )
+        if getattr(detection, "content_type", "") != "application/pdf":
+            return False
+        if getattr(detection, "is_scanned", False):
+            return True
+        if getattr(detection, "low_text_quality", False) and self.force_ocr:
+            return True
+        return False
 
     def preprocess(
         self,

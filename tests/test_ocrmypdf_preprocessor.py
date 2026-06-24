@@ -61,6 +61,30 @@ class TestNeedsOCR:
         )
         assert preprocessor.needs_ocr(detection) is False
 
+    def test_low_quality_text_layer_triggers_ocr(self):
+        """A present-but-garbled text layer should trigger re-OCR when
+        force_ocr is enabled."""
+        preprocessor = OCRmyPDFPreprocessor()
+        preprocessor.force_ocr = True
+        detection = TikaDetectionResult(
+            content_type="application/pdf",
+            is_scanned=False,
+            low_text_quality=True,
+        )
+        assert preprocessor.needs_ocr(detection) is True
+
+    def test_low_quality_without_force_ocr_does_not_trigger(self):
+        """Without force_ocr, OCRmyPDF would skip pages that already have text,
+        so re-OCR of a garbled layer is not attempted."""
+        preprocessor = OCRmyPDFPreprocessor()
+        preprocessor.force_ocr = False
+        detection = TikaDetectionResult(
+            content_type="application/pdf",
+            is_scanned=False,
+            low_text_quality=True,
+        )
+        assert preprocessor.needs_ocr(detection) is False
+
 
 class TestPreprocess:
     """Tests for OCRmyPDFPreprocessor.preprocess()."""
@@ -72,13 +96,15 @@ class TestPreprocess:
 
         mock_ocrmypdf = MagicMock()
 
-        # Simulate ocrmypdf writing an output file
-        def fake_ocr(**kwargs):
-            out = kwargs.get("output_file", "")
+        # Simulate ocrmypdf writing an output file. The preprocessor calls
+        # ``ocrmypdf.ocr(input_path, output_path, ...)`` with the two paths
+        # passed positionally, so accept *args here.
+        def fake_ocr(*args, **kwargs):
+            out = args[1] if len(args) > 1 else kwargs.get("output_file", "")
             with open(out, "wb") as f:
                 f.write(b"%PDF-1.4 ocr'd content")
 
-        mock_ocrmypdf.ocr = MagicMock(side_effect=lambda **kw: fake_ocr(**kw))
+        mock_ocrmypdf.ocr = MagicMock(side_effect=fake_ocr)
 
         preprocessor = OCRmyPDFPreprocessor(language="eng")
 

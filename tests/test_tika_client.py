@@ -21,7 +21,7 @@ All tests mock the HTTP layer — no Tika server required.
 import pytest
 from unittest.mock import patch, MagicMock
 
-from retriva.ingestion.tika_client import TikaClient, TikaDetectionResult
+from retriva.ingestion.tika_client import TikaClient, TikaDetectionResult, score_text_quality
 
 
 class TestTikaDetectMime:
@@ -125,7 +125,13 @@ class TestTikaDetect:
 
     @patch("retriva.ingestion.tika_client.requests.put")
     def test_detect_text_pdf(self, mock_put, tmp_path):
-        """PDF with many chars should NOT be flagged as scanned."""
+        """PDF with many chars of good text should NOT be flagged as scanned
+        or low-quality."""
+        good_text = (
+            "This service manual describes the checkpoints required when "
+            "performing on-site service for the device, including power supply "
+            "and installation requirements as well as periodical maintenance. "
+        ) * 5
         responses = [
             MagicMock(text="application/pdf", raise_for_status=MagicMock()),
             MagicMock(
@@ -136,6 +142,8 @@ class TestTikaDetect:
                 }),
                 raise_for_status=MagicMock(),
             ),
+            # extract_text response (text-quality sampling)
+            MagicMock(text=good_text, raise_for_status=MagicMock()),
         ]
         mock_put.side_effect = responses
 
@@ -146,7 +154,60 @@ class TestTikaDetect:
         result = client.detect(str(f))
         assert result.content_type == "application/pdf"
         assert result.is_scanned is False
+        assert result.low_text_quality is False
         assert result.language == "en"
+
+    @patch("retriva.ingestion.tika_client.requests.put")
+    def test_detect_garbled_text_pdf(self, mock_put, tmp_path):
+        """A PDF with a present-but-garbled text layer should be flagged
+        low_text_quality (not scanned) so it gets re-OCR'd."""
+        garbled = " ".join([
+            "edOtLo", "PCATTL", "ANWARNING", "PCO", "eiL", "DFhk", "ndlkr",
+            "vbcdf", "xkjqp", "mnbvc", "zxcvb", "ptkrl", " qwrtp", "jklmn",
+        ] * 6)
+        responses = [
+            MagicMock(text="application/pdf", raise_for_status=MagicMock()),
+            MagicMock(
+                json=MagicMock(return_value={
+                    "Content-Type": "application/pdf",
+                    "pdf:totalChars": "8000",
+                }),
+                raise_for_status=MagicMock(),
+            ),
+            MagicMock(text=garbled, raise_for_status=MagicMock()),
+        ]
+        mock_put.side_effect = responses
+
+        f = tmp_path / "garbled.pdf"
+        f.write_bytes(b"content")
+
+        client = TikaClient(server_url="http://fake:9998")
+        result = client.detect(str(f))
+        assert result.is_scanned is False
+        assert result.low_text_quality is True
+        assert result.text_quality_score < 0.55
+
+
+class TestScoreTextQuality:
+    """Tests for the language-agnostic text-quality heuristic."""
+
+    def test_clean_prose_scores_high(self):
+        text = (
+            "The customer engineer must perform regular safety checks to "
+            "maintain reliability of the printer and the fusing unit."
+        )
+        assert score_text_quality(text) > 0.8
+
+    def test_garble_scores_low(self):
+        text = " ".join(["PCATTL", "edOtLo", "ndlkr", "xkjqp", "zxcvb", "mnbvc"] * 5)
+        assert score_text_quality(text) < 0.5
+
+    def test_too_few_words_returns_one(self):
+        # Fewer than 5 analysable words -> defer (1.0), don't false-trigger OCR.
+        assert score_text_quality("a b c") == 1.0
+
+    def test_empty_returns_one(self):
+        assert score_text_quality("") == 1.0
 
 
 class TestTikaHealthCheck:

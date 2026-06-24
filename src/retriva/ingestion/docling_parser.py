@@ -69,6 +69,21 @@ class DoclingParser:
         self._converter = None
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _apply_ocr_option(pipeline_options, do_ocr: bool) -> None:
+        """Set Docling's ``do_ocr`` flag defensively.
+
+        ``do_ocr`` defaults to True in Docling and enables its built-in OCR
+        engine. We disable it by default (OCR is done upstream by OCRmyPDF).
+        Guarded with try/except so a Docling version without the attribute
+        does not break initialization.
+        """
+        try:
+            pipeline_options.do_ocr = do_ocr
+            logger.debug(f"Docling pipeline do_ocr set to {do_ocr}")
+        except Exception as e:
+            logger.debug(f"Could not set Docling do_ocr option: {e}")
+
     def _get_converter(self):
         """Lazy-initialize the DocumentConverter (heavy import)."""
         if self._converter is None:
@@ -87,6 +102,14 @@ class DoclingParser:
                     pipeline_options.num_threads = 2
                 except Exception:
                     pass
+
+                # Disable Docling's built-in OCR. OCR is handled upstream by
+                # OCRmyPDF (PREPROCESSING stage); leaving Docling's OCR enabled
+                # is redundant and, on some builds, crashes ``convert()`` with
+                # "Unsupported configuration: torch.PP-OCRv6.det.small",
+                # yielding zero records. ``do_ocr`` defaults to True in
+                # Docling, so we must set it explicitly.
+                self._apply_ocr_option(pipeline_options, settings.docling_do_ocr)
 
                 # Enable picture rasterization so figures/diagrams can be
                 # persisted and handed to the VLM describer. Without this,
@@ -109,6 +132,7 @@ class DoclingParser:
                         pipeline_options.num_threads = 2
                     except Exception:
                         pass
+                    self._apply_ocr_option(pipeline_options, settings.docling_do_ocr)
                     try:
                         if settings.docling_generate_picture_images:
                             pipeline_options.generate_picture_images = True

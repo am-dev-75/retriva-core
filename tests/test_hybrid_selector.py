@@ -160,9 +160,9 @@ class TestKeepL:
 class TestHybridDisabled:
     def test_disabled_returns_reranked(self, reranked_chunks, vector_top_chunks):
         """When hybrid selection is disabled, return reranked unchanged."""
-        from retriva.qa.answerer import _hybrid_select_if_enabled
+        from retriva.qa.retriever import _hybrid_select_if_enabled
 
-        with patch("retriva.qa.answerer.settings") as ms:
+        with patch("retriva.qa.retriever.settings") as ms:
             ms.enable_retrieval_reranking = True
             ms.enable_hybrid_retrieval_selection = False
             result = _hybrid_select_if_enabled(reranked_chunks, vector_top_chunks)
@@ -171,9 +171,9 @@ class TestHybridDisabled:
 
     def test_disabled_when_reranking_off(self, reranked_chunks, vector_top_chunks):
         """When reranking is off, hybrid selection should also be off."""
-        from retriva.qa.answerer import _hybrid_select_if_enabled
+        from retriva.qa.retriever import _hybrid_select_if_enabled
 
-        with patch("retriva.qa.answerer.settings") as ms:
+        with patch("retriva.qa.retriever.settings") as ms:
             ms.enable_retrieval_reranking = False
             result = _hybrid_select_if_enabled(reranked_chunks, vector_top_chunks)
 
@@ -225,7 +225,7 @@ class TestHybridEdgeCases:
 class TestHybridAnswererIntegration:
     def test_answerer_passes_both_knobs(self, reranked_chunks, vector_top_chunks):
         """_hybrid_select_if_enabled passes keep_m and keep_l from settings."""
-        from retriva.qa.answerer import _hybrid_select_if_enabled
+        from retriva.qa.retriever import _hybrid_select_if_enabled
 
         captured = {}
 
@@ -235,12 +235,12 @@ class TestHybridAnswererIntegration:
                 captured["keep_l"] = keep_l
                 return reranked[:keep_m]
 
-        with patch("retriva.qa.answerer.settings") as ms:
+        with patch("retriva.qa.retriever.settings") as ms:
             ms.enable_retrieval_reranking = True
             ms.enable_hybrid_retrieval_selection = True
             ms.hybrid_rerank_keep_top_m = 4
             ms.hybrid_vector_keep_top_l = 8
-            with patch("retriva.qa.answerer.CapabilityRegistry") as mr:
+            with patch("retriva.qa.retriever.CapabilityRegistry") as mr:
                 mr.return_value.get_instance.return_value = SpySelector()
                 _hybrid_select_if_enabled(reranked_chunks, vector_top_chunks)
 

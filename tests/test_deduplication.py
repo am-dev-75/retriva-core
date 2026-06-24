@@ -37,6 +37,7 @@ import retriva.ingestion.parser_router
 import retriva.ingestion.tika_client
 import retriva.ingestion.ocrmypdf_preprocessor
 import retriva.ingestion.docling_parser
+from retriva.config import settings
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +60,12 @@ def reset_capabilities():
     importlib.reload(retriva.ingestion.tika_client)
     importlib.reload(retriva.ingestion.ocrmypdf_preprocessor)
     importlib.reload(retriva.ingestion.docling_parser)
-    with patch("retriva.ingestion.tika_client.TikaClient.health_check", return_value=False):
+    # Force the built-in plain-text parser (``parser:default``) so these tests
+    # do not require Docling to be installed. ``costs.txt`` is plain text, so
+    # the default router extracts it correctly and the first ingest produces
+    # real chunks — which is what the dedup cases B–F depend on.
+    with patch("retriva.ingestion.tika_client.TikaClient.health_check", return_value=False), \
+         patch.object(settings, "v2_primary_parser", "default"):
         yield
     from retriva.ingestion_api.job_manager import JobManager
     JobManager._reset()
@@ -274,6 +280,46 @@ def test_case_e_conflicting_metadata_overwrite(mock_get_client, mock_update_payl
 
 
 # ---------------------------------------------------------------------------
+# Failed / empty ingestion must NOT leave a blocking dedup record
+# ---------------------------------------------------------------------------
+
+@patch("retriva.ingestion_api.routers.v2_documents.upsert_chunks")
+@patch("retriva.ingestion_api.routers.v2_documents.get_client")
+def test_empty_parse_does_not_block_retry(mock_get_client, mock_upsert):
+    """If a document yields empty content (no parseable text), the catalog
+    record must be removed so a later re-upload is reprocessed rather than
+    skipped as an already-ingested duplicate.
+
+    Uses whitespace-only bytes so the real text parser produces empty content
+    and the worker's empty-content guard fires (no internal mocking needed).
+    """
+    from retriva.ingestion_api.main import app
+    from retriva.ingestion.dedup import DeduplicationStore
+
+    empty_bytes = b"   \n\n  \t  \n"
+
+    with TestClient(app) as client:
+        r1 = _upload(client, content=empty_bytes, metadata={"project": "apollo"})
+        assert r1.status_code == 202
+        doc_id = r1.json()["doc_id"]
+
+        # The empty ingest must have removed the catalog record.
+        store = DeduplicationStore()
+        assert store.get_by_doc_id(doc_id) is None
+
+        # No chunks were indexed.
+        mock_upsert.assert_not_called()
+
+        # A retry of the same (empty) bytes is treated as a NEW document
+        # (not a duplicate skip), proving the dedup key was freed.
+        r2 = _upload(client, content=empty_bytes, metadata={"project": "apollo"})
+
+    assert r2.status_code == 202
+    assert r2.json()["status"] == "accepted"
+    assert r2.json()["deduplicated"] is False
+
+
+# ---------------------------------------------------------------------------
 # Case F — Same file, different KB
 # ---------------------------------------------------------------------------
 
@@ -360,3 +406,35 @@ def test_merge_source_paths_duplicate():
     merged, changed = merge_source_paths(["costs.txt"], "costs.txt", "d", "k")
     assert merged == ["costs.txt"]
     assert changed is False
+
+
+def test_delete_by_doc_id_removes_record(tmp_path):
+    """delete_by_doc_id removes a record and frees its dedup key."""
+    from retriva.ingestion.dedup import DeduplicationStore
+    from retriva.domain.models import DocRecord
+
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+    store = DeduplicationStore(catalog_path=str(tmp_path / "cat.json"))
+    rec = DocRecord(
+        doc_id="doc_x",
+        kb_id="kb1",
+        collection_name="col1",
+        content_hash="sha256:deadbeef",
+        content_size=10,
+        filename="x.pdf",
+        source_paths=["x.pdf"],
+        ingestion_status="pending",
+        created_at=now_iso,
+        updated_at=now_iso,
+    )
+    store.create_record(rec)
+    assert store.get_by_doc_id("doc_x") is not None
+
+    # Delete and confirm both the doc_id and the (kb, hash, collection) key are freed
+    assert store.delete_by_doc_id("doc_x") is True
+    assert store.get_by_doc_id("doc_x") is None
+    assert store.get_by_hash("kb1", "sha256:deadbeef", "col1") is None
+
+    # Idempotent: deleting again returns False
+    assert store.delete_by_doc_id("doc_x") is False

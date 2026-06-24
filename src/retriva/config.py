@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     retriever_top_k: int = 20
     retrieval_fetch_k_multiplier: int = 5
     retrieval_max_chunks_per_doc: int = 3
+    # Skip the per-document diversity cap when the candidate pool contains only
+    # ONE distinct document. With a single-document corpus the cap has nothing
+    # to diversify against and merely truncates the reranker's best chunks to
+    # ``retrieval_max_chunks_per_doc`` (e.g. 3), which starves the context and
+    # can let marginally-higher-scoring but off-topic chunks crowd out the
+    # relevant section. When True, single-doc queries keep up to ``top_k``
+    # reranked chunks instead.
+    retrieval_single_doc_bypass_diversity: bool = True
     retrieval_metadata_boost: float = 0.1
     
     # Retrieval re-ranking (two-stage)
@@ -102,8 +110,32 @@ class Settings(BaseSettings):
     ocrmypdf_deskew: bool = True
     ocrmypdf_rotate_pages: bool = True
     ocrmypdf_force_ocr: bool = True
+    # Re-OCR PDFs whose embedded text layer is present but garbled (low
+    # quality). Some PDFs ship a corrupt/lossy text layer (e.g. exported from
+    # imaging software or a prior bad OCR pass) that Tika still reports as
+    # "text", so the scanned heuristic alone never triggers OCR. When enabled,
+    # the DETECTING stage samples the embedded text and flags it for re-OCR if
+    # its quality score falls below ``ocr_text_quality_threshold``.
+    ocr_redo_low_quality: bool = True
+    # Fraction (0..1) of sampled tokens that must look like plausible words for
+    # the embedded text layer to be considered "good". Below this, the PDF is
+    # re-OCR'd. Lower = more permissive (re-OCR less often).
+    ocr_text_quality_threshold: float = 0.55
+    # Minimum number of characters Tika must return before the quality
+    # heuristic runs; below this we defer to the scanned/charsPerPage signal.
+    ocr_text_quality_min_chars: int = 200
     v2_primary_parser: str = "docling"
     accelerator_device: str = "cpu"  # cpu, cuda, mps, auto
+    # Docling ships with its own built-in OCR engine (PaddleOCR / PP-OCRv*).
+    # In Retriva, OCR is performed UPSTREAM by OCRmyPDF (PREPROCESSING stage),
+    # so Docling's internal OCR is redundant. Worse, some Docling builds ship
+    # an OCR model config that is unavailable at runtime (e.g.
+    # "Unsupported configuration: torch.PP-OCRv6.det.small"), which makes
+    # ``convert()`` raise and yields zero records. Disabling Docling's OCR
+    # avoids both the redundancy and that crash; the (already-OCR'd) text
+    # layer is read directly. Set True only if you intentionally rely on
+    # Docling's OCR instead of OCRmyPDF.
+    docling_do_ocr: bool = False
 
     # Docling image extraction (enables VLM enrichment of figures/diagrams).
     # When enabled, Docling rasterizes page pictures so they can be persisted

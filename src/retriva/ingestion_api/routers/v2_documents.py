@@ -245,6 +245,33 @@ def records_to_parsed_document(
 # Shared background worker — multi-tool pipeline
 # ---------------------------------------------------------------------------
 
+def _cleanup_failed_dedup_record(
+    dedup_store: "DeduplicationStore",
+    doc_id: Optional[str],
+    job_id: str,
+    reason: str,
+) -> None:
+    """Remove the catalog record for a failed/empty ingestion.
+
+    Only acts when ``doc_id`` is set (the upload path creates the record;
+    other paths do not). Guarded so cleanup never masks the original failure.
+    """
+    if not doc_id:
+        return
+    try:
+        removed = dedup_store.delete_by_doc_id(doc_id)
+        if removed:
+            logger.info(
+                f"failed_ingestion_dedup_record_removed: job={job_id}, "
+                f"doc_id={doc_id}, reason={reason}"
+            )
+    except Exception as cleanup_err:  # pragma: no cover - defensive
+        logger.warning(
+            f"Job {job_id}: could not remove dedup record for doc_id={doc_id} "
+            f"after {reason}: {cleanup_err}"
+        )
+
+
 def process_document_v2(
     source_uri: str,
     content_type: Optional[str],
@@ -362,7 +389,12 @@ def process_document_v2(
         normalized.content_text = normalize_text(normalized.content_text)
 
         if not normalized.content_text.strip() and not normalized.images:
-            logger.warning(f"Job {job_id}: empty content after normalization — skipping.")
+            logger.warning(
+                f"Job {job_id}: empty content after normalization "
+                f"({len(records)} parsed record(s)) — skipping. "
+                f"Removing catalog record so a later retry is not blocked as a duplicate."
+            )
+            _cleanup_failed_dedup_record(dedup_store, doc_id, job_id, reason="empty_content")
             manager.complete_job(job_id)
             return
         if cancel_check():
@@ -394,6 +426,11 @@ def process_document_v2(
     except Exception as e:
         manager.fail_job(job_id, str(e))
         logger.error(f"Job {job_id} failed: {e}")
+        # A failed ingest must not leave behind a catalog record, otherwise the
+        # (kb_id, content_hash, collection) key would make the next upload of
+        # the same file be treated as an already-ingested duplicate and skip
+        # processing — even though no chunks were ever indexed.
+        _cleanup_failed_dedup_record(dedup_store, doc_id, job_id, reason="exception")
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
