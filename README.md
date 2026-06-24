@@ -1,5 +1,6 @@
 ![](docs/assets/Retriva_logo_slogan_white_background.jpg)
 
+
 # Retriva
 
 - [Retriva](#retriva)
@@ -32,6 +33,7 @@
   - [Implementation](#implementation)
   - [API](#api)
   - [Quick Start](#quick-start)
+    - [Containerization](#containerization)
   - [Deployment options](#deployment-options)
   - [Possible future developments](#possible-future-developments)
   - [Licensing](#licensing)
@@ -346,7 +348,6 @@ Thanks to its deeply modular design, Retriva can be deployed in several differen
 
 ## Possible future developments
 
-* Containerized version to facilitate deployment and simplify dependency management.
 * Test deployment on a confidential computing-enabled cloud, using TensorRT-LLM as the LLM runner.
 * Enable Qdrant hybrid search (semantic + keyword).
 * Refine retrieval pipeline by adding GraphRAG capabilities.

@@ -8,7 +8,7 @@ info:
     The Core runs as two processes:
     * **Ingestion API** (port 8000): Document processing pipeline, metadata, jobs, artifacts.
     * **OpenAI Chat API** (port 8001): OpenAI-compatible `/v1/chat/completions` for RAG.
-  version: 1.0.0
+  version: 1.0.0-rc4
   contact:
     name: Andrea Marson
     email: am.dev.75@gmail.com
@@ -37,6 +37,8 @@ tags:
     description: Metadata schema and values discovery (v2)
   - name: Retrieval v2
     description: Vector and metadata-filtered retrieval (v2)
+  - name: Knowledge Base v2
+    description: Knowledge base management (v2)
   - name: Chat
     description: OpenAI-compatible retrieval and completion
   - name: Internal
@@ -63,7 +65,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/ingest/HTML:
+  /api/v1/ingest/html:
     post:
       tags: [Ingestion v1 (legacy)]
       summary: Ingest HTML content
@@ -253,11 +255,21 @@ paths:
             type: string
       responses:
         "200":
+          description: Already cancelling or cancelled (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+        "202":
           description: Cancellation requested
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/IngestResponse"
+                $ref: "#/components/schemas/JobResponse"
+        "404":
+          description: Job not found
+        "409":
+          description: Cannot cancel a job in a terminal state
 
   # --- v2 Ingestion API ---
   /api/v2:
@@ -343,6 +355,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/IngestResponseV2"
 
+  /api/v2/documents/mediawiki:
+    post:
+      tags: [Ingestion v2]
+      summary: Ingest a MediaWiki XML export directory (v2)
+      operationId: ingestMediaWikiExportV2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaWikiExportRequestV2"
+      responses:
+        "202":
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResponseV2"
+
   /api/v2/documents/filter:
     post:
       tags: [Ingestion v2]
@@ -406,6 +437,10 @@ paths:
                 user_metadata:
                   type: string
                   description: Optional JSON-encoded user metadata
+                kb_id:
+                  type: string
+                  default: default
+                  description: Target knowledge base id. Must exist in the registry.
       responses:
         "202":
           description: Accepted for processing
@@ -680,12 +715,115 @@ paths:
               schema:
                 $ref: "#/components/schemas/ArtifactCapabilitiesResponseV2"
 
+  # --- Knowledge Base API (v2) ---
+  /api/v2/kbs:
+    get:
+      tags: [Knowledge Base v2]
+      summary: List knowledge bases
+      operationId: listKBs
+      responses:
+        "200":
+          description: List of KBs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KBListResponse"
+    post:
+      tags: [Knowledge Base v2]
+      summary: Create a knowledge base
+      operationId: createKB
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KBCreateRequest"
+      responses:
+        "201":
+          description: KB created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KBResponse"
+        "409":
+          description: KB id already exists or is invalid
+
+  /api/v2/kbs/{kb_id}:
+    get:
+      tags: [Knowledge Base v2]
+      summary: Get a knowledge base
+      operationId: getKB
+      parameters:
+        - name: kb_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: KB details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KBResponse"
+        "404":
+          description: KB not found
+    patch:
+      tags: [Knowledge Base v2]
+      summary: Update a knowledge base
+      operationId: updateKB
+      parameters:
+        - name: kb_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KBUpdateRequest"
+      responses:
+        "200":
+          description: KB updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KBResponse"
+        "404":
+          description: KB not found
+        "409":
+          description: Cannot modify the default KB
+    delete:
+      tags: [Knowledge Base v2]
+      summary: Delete a knowledge base and cascade its data
+      operationId: deleteKB
+      parameters:
+        - name: kb_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: KB deleted
+        "404":
+          description: KB not found
+        "409":
+          description: Cannot delete the default KB
+        "500":
+          description: Partial cascade failure
+
   # --- OpenAI Chat API ---
   /v1/models:
     get:
       tags: [Chat]
-      summary: List available models
+      summary: List available models (retriva, retriva-v2)
       operationId: listModels
+      description: |
+        Retriva exposes two model identifiers for OpenAI-compatible clients:
+        `retriva` and `retriva-v2`. Both resolve to the same RAG pipeline.
       responses:
         "200":
           description: OpenAI-compatible model list
@@ -775,6 +913,23 @@ paths:
           description: Recent structured profiler logs
         "404":
           description: Profiler is disabled
+
+  # --- Health ---
+  /health:
+    get:
+      tags: [Internal]
+      summary: Health check
+      operationId: getHealth
+      description: Available on both the Ingestion API (8000) and OpenAI API (8001).
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
 
   # --- Root ---
   /:
@@ -916,6 +1071,77 @@ components:
         parser_hint:
           type: string
           description: Force a specific parser backend (e.g. 'docling', 'ocrmypdf').
+        kb_id:
+          type: string
+          default: default
+          description: Target knowledge base id. Must exist in the registry.
+
+    MediaWikiExportRequestV2:
+      type: object
+      required: [staged_dir]
+      properties:
+        staged_dir:
+          type: string
+          description: Local path to the staged directory containing XML exports and optional assets/ subtree.
+        kb_id:
+          type: string
+          default: default
+          description: Target knowledge base id. Must exist in the registry.
+        user_metadata:
+          type: object
+          additionalProperties: { type: string }
+          description: Optional user-provided key/value metadata.
+
+    KBCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        kb_id:
+          type: string
+          description: Optional explicit id matching ^[a-z0-9][a-z0-9_-]{0,63}$. Derived from name if omitted.
+        name:
+          type: string
+          description: Human-readable label (1-128 chars).
+        description:
+          type: string
+          description: Optional description (up to 1024 chars).
+        settings:
+          type: object
+          description: Reserved for future per-KB settings.
+
+    KBUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        settings:
+          type: object
+
+    KBResponse:
+      type: object
+      required: [kb_id, name, created_at, updated_at]
+      properties:
+        kb_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        created_at: { type: string }
+        updated_at: { type: string }
+        settings:
+          type: object
+        document_count:
+          type: integer
+          default: 0
+
+    KBListResponse:
+      type: object
+      required: [kbs]
+      properties:
+        kbs:
+          type: array
+          items:
+            $ref: "#/components/schemas/KBResponse"
 
     JobStage:
       type: string
@@ -1096,6 +1322,24 @@ components:
         stream: { type: boolean }
         temperature: { type: number }
         top_p: { type: number }
+        kb_ids:
+          type: array
+          items: { type: string }
+          default: [default]
+          description: Knowledge base IDs to search.
+        metadata_filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetadataFilter"
+          description: Advanced metadata filters for retrieval.
+        metadata_filter_mode:
+          $ref: "#/components/schemas/MetadataFilterMode"
+          default: soft
+          description: Filtering mode (hard or soft).
+        user_metadata_filter:
+          type: object
+          additionalProperties: { type: string }
+          description: "[DEPRECATED] Use metadata_filters instead."
 
     ChatMessage:
       type: object
@@ -1104,6 +1348,27 @@ components:
         role: { type: string, enum: [system, user, assistant] }
         content: { type: string }
         metadata: { type: object }
+        tool_calls:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolCall"
+          description: Retriva extension carrying citation payloads.
+
+    ToolCall:
+      type: object
+      required: [id, function]
+      properties:
+        id: { type: string }
+        type: { type: string, default: function }
+        function:
+          $ref: "#/components/schemas/ToolCallFunction"
+
+    ToolCallFunction:
+      type: object
+      required: [name, arguments]
+      properties:
+        name: { type: string }
+        arguments: { type: string }
 
     ChatCompletionResponse:
       type: object
