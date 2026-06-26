@@ -18,3 +18,5 @@ ocrmypdf>=16.0.0
 fpdf2>=2.7.0
 python-docx>=1.1.0
 openpyxl>=3.1.0
+celery[redis]>=5.4.0
+redis>=5.0.0

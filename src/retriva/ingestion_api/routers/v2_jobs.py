@@ -41,12 +41,40 @@ async def list_jobs_v2():
 
 @router.get("/{job_id}", response_model=JobResponseV2)
 async def get_job_v2(job_id: str):
-    """Get the status of a specific job with pipeline stage information."""
+    """Get the status of a specific job with pipeline stage information.
+
+    When Celery/Redis is enabled, falls back to the Redis-backed task status
+    if the job is not found in the in-memory JobManager (e.g. after an API
+    restart).
+    """
     manager = JobManager()
+
+    # When Celery is enabled, the worker process updates job state in Redis.
+    # The API process's in-memory JobManager is stale (it created the job
+    # but never receives updates from the worker).  Check Redis first.
+    from retriva.ingestion_api.celery_app import celery_enabled
+    if celery_enabled():
+        from retriva.ingestion_api.tasks import get_task_status
+        task_state = get_task_status(job_id)
+        if task_state is not None:
+            return JobResponseV2(
+                job_id=job_id,
+                status=task_state.get("status", "pending"),
+                source=task_state.get("source", ""),
+                job_type=task_state.get("job_type", "v2_document"),
+                created_at=task_state.get("created_at", ""),
+                updated_at=task_state.get("updated_at", ""),
+                error=task_state.get("error"),
+                current_stage=task_state.get("current_stage"),
+                stages_completed=task_state.get("stages_completed", []),
+            )
+
+    # Fall back to in-memory (BackgroundTasks mode or pre-Celery)
     job = manager.get_job(job_id)
-    if job is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
-        )
-    return JobResponseV2(**job.to_dict())
+    if job is not None:
+        return JobResponseV2(**job.to_dict())
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Job not found",
+    )

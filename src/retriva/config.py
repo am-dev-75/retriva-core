@@ -148,6 +148,14 @@ class Settings(BaseSettings):
     # Skip describing tiny images (icons, bullets, rule lines) that carry no
     # retrievable content. Value is the minimum width*height in pixels.
     docling_min_picture_area_px: int = 64 * 64
+    # When a PDF (typically the OCR'd intermediate) exceeds this many pages,
+    # the PARSING stage splits it into smaller chunks and parses each
+    # separately. This prevents OOM-kills when Docling loads the entire PDF
+    # into memory. 0 = never split.
+    docling_pdf_split_page_threshold: int = 200
+    # Number of pages per chunk when splitting. Each chunk is parsed
+    # independently by Docling; records are then merged.
+    docling_pdf_split_chunk_size: int = 100
 
     # OpenAI-compatible API (for Open WebUI)
     openai_api_port: int = 8001
@@ -166,6 +174,26 @@ class Settings(BaseSettings):
     
     # Internal Request Profiler
     enable_internal_profiler: bool = False
+
+    # ── Asynchronous job queue (Celery + Redis) ──────────────────────────
+    # When ``celery_broker_url`` is set (non-empty), the v2 ingestion pipeline
+    # dispatches work to a Celery worker instead of using FastAPI
+    # BackgroundTasks.  This makes long-running ingestions (e.g. OCRmyPDF on a
+    # 1400-page scanned PDF) survive API restarts.  When unset, the system
+    # falls back to the original in-memory BackgroundTasks path.
+    celery_broker_url: str = ""        # e.g. redis://redis:6379/0
+    celery_result_backend: str = ""    # e.g. redis://redis:6379/1
+    celery_task_max_retries: int = 3
+    # Soft time limit per task in seconds (0 = no limit).  OCR on huge PDFs
+    # can take 30+ minutes, so the default is generous.
+    celery_task_soft_time_limit: int = 0
+    celery_task_time_limit: int = 0
+    # Number of worker processes.  Each can consume significant CPU/memory
+    # during OCR/Docling.  Defaults to 1 for predictability.
+    celery_worker_concurrency: int = 1
+    # When True, the worker re-queues a task whose process is killed (SIGKILL /
+    # OOM).  Requires ``task_acks_late = True``.
+    celery_worker_prefetch_multiplier: int = 1
 
     # Pydantic Settings
     model_config = SettingsConfigDict(

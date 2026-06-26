@@ -31,12 +31,43 @@ async def list_jobs():
 
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(job_id: str):
-    """Get the status of a specific job."""
+    """Get the status of a specific job.
+
+    When Celery is enabled, checks Redis first (the worker process
+    updates job state there) then falls back to the in-memory manager.
+
+    The worker writes *partial* state dicts to Redis during stage changes
+    (e.g. ``{"job_id", "status", "error"}``), so we merge the Redis
+    real-time status with the full metadata from the in-memory
+    ``JobManager`` before validating against ``JobResponse``.
+    """
     manager = JobManager()
-    job = manager.get_job(job_id)
-    if job is None:
+    in_memory_job = manager.get_job(job_id)
+
+    # When Celery is enabled, the worker updates state in Redis.
+    from retriva.ingestion_api.celery_app import celery_enabled
+    if celery_enabled():
+        from retriva.ingestion_api.tasks import get_task_status
+        task_state = get_task_status(job_id)
+        if task_state is not None:
+            # Redis state may be partial (only job_id/status/error).
+            # Enrich it with full metadata from the in-memory manager so
+            # that JobResponse validation doesn't fail on missing fields.
+            if in_memory_job is not None:
+                full = in_memory_job.to_dict()
+                full.update(task_state)  # Redis status takes precedence
+                return JobResponse(**full)
+            # No in-memory copy: fill in defaults for required fields so
+            # the caller gets a useful response instead of a 500.
+            task_state.setdefault("source", "unknown")
+            task_state.setdefault("job_type", "unknown")
+            task_state.setdefault("created_at", task_state.get("updated_at", ""))
+            task_state.setdefault("updated_at", task_state.get("created_at", ""))
+            return JobResponse(**task_state)
+
+    if in_memory_job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    return JobResponse(**job.to_dict())
+    return JobResponse(**in_memory_job.to_dict())
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponse)
@@ -53,6 +84,17 @@ async def cancel_job(job_id: str):
     job = manager.get_job(job_id)
 
     if job is None:
+        # When Celery is enabled, the job may not be in the in-memory manager
+        # (e.g. after an API restart). Try Redis-backed cancellation.
+        from retriva.ingestion_api.celery_app import celery_enabled
+        if celery_enabled():
+            from retriva.ingestion_api.tasks import request_task_cancellation
+            request_task_cancellation(job_id)
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={"job_id": job_id, "status": "cancelling"},
+    )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     if job.status in (JobStatus.CANCELLING, JobStatus.CANCELLED):
@@ -66,6 +108,13 @@ async def cancel_job(job_id: str):
         )
 
     manager.request_cancel(job_id)
+
+    # Also revoke the Celery task if Celery is enabled
+    from retriva.ingestion_api.celery_app import celery_enabled
+    if celery_enabled():
+        from retriva.ingestion_api.tasks import request_task_cancellation
+        request_task_cancellation(job_id)
+
     # Re-fetch after state change
     job = manager.get_job(job_id)
     logger.info(f"Cancellation requested for job {job_id}")

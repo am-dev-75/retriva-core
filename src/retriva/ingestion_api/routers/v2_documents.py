@@ -52,7 +52,7 @@ from retriva.ingestion.dedup import (
 )
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from retriva.ingestion.normalize import normalize_text
-from retriva.ingestion_api.job_manager import CancellationError, JobManager
+from retriva.ingestion_api.job_manager import CancellationError, JobManager, JobStatus
 from retriva.ingestion_api.schemas import UserMetadataValidationError, validate_user_metadata, DeleteMetadataRequest
 from retriva.ingestion_api.deps import require_kb_exists, require_kbs_exist
 from retriva.ingestion_api.schemas_v2 import (
@@ -272,6 +272,97 @@ def _cleanup_failed_dedup_record(
         )
 
 
+# ---------------------------------------------------------------------------
+# Parsing checkpoint persistence
+# ---------------------------------------------------------------------------
+#
+# For large PDFs that are split into many parts, each part's CanonicalRecord
+# list is checkpointed to disk after parsing.  If the worker crashes or is
+# OOM-killed before the INDEXING stage, a retry can resume parsing from the
+# last completed part instead of re-doing everything from scratch.
+#
+# Checkpoint layout:
+#   {storage_path}/tmp/parse_checkpoints/{job_id}/
+#       part_0001.json
+#       part_0002.json
+#       ...
+#       manifest.json   ← {total_parts, content_type, completed: [0,1,...]}
+
+_CHECKPOINT_DIR_NAME = "parse_checkpoints"
+
+
+def _checkpoint_dir(job_id: str) -> Path:
+    """Return the on-disk checkpoint directory for a given job."""
+    return Path(settings.storage_path) / "tmp" / _CHECKPOINT_DIR_NAME / job_id
+
+
+def _save_part_checkpoint(
+    job_id: str,
+    part_idx: int,
+    records: List[CanonicalRecord],
+) -> Path:
+    """Persist a single part's parsed records to disk as JSON."""
+    ckpt_dir = _checkpoint_dir(job_id)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_path = ckpt_dir / f"part_{part_idx + 1:04d}.json"
+    payload = [r.model_dump() for r in records]
+    tmp_path = ckpt_path.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        _json.dump(payload, f)
+    os.replace(tmp_path, ckpt_path)  # atomic rename
+    return ckpt_path
+
+
+def _load_part_checkpoint(
+    job_id: str,
+    part_idx: int,
+) -> Optional[List[CanonicalRecord]]:
+    """Load a previously checkpointed part, or None if not present/corrupt."""
+    ckpt_path = _checkpoint_dir(job_id) / f"part_{part_idx + 1:04d}.json"
+    if not ckpt_path.is_file():
+        return None
+    try:
+        with open(ckpt_path, "r", encoding="utf-8") as f:
+            payload = _json.load(f)
+        return [CanonicalRecord(**item) for item in payload]
+    except Exception as e:
+        logger.warning(
+            f"Job {job_id}: could not load checkpoint part {part_idx + 1} "
+            f"({e}) — will re-parse"
+        )
+        return None
+
+
+def _load_checkpoint_manifest(job_id: str) -> Optional[dict]:
+    """Load the checkpoint manifest, or None if not present."""
+    manifest_path = _checkpoint_dir(job_id) / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            return _json.load(f)
+    except Exception:
+        return None
+
+
+def _save_checkpoint_manifest(job_id: str, manifest: dict) -> None:
+    """Persist the checkpoint manifest (total parts, content_type, completed)."""
+    ckpt_dir = _checkpoint_dir(job_id)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = ckpt_dir / "manifest.json"
+    tmp_path = manifest_path.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        _json.dump(manifest, f)
+    os.replace(tmp_path, manifest_path)
+
+
+def _cleanup_checkpoints(job_id: str) -> None:
+    """Remove all checkpoint files for a job (called on successful completion)."""
+    ckpt_dir = _checkpoint_dir(job_id)
+    if ckpt_dir.is_dir():
+        shutil.rmtree(ckpt_dir, ignore_errors=True)
+
+
 def process_document_v2(
     source_uri: str,
     content_type: Optional[str],
@@ -286,19 +377,41 @@ def process_document_v2(
     content_size: Optional[int] = None,
     ingestion_status: str = "completed",
     created_at: Optional[str] = None,
+    _cancel_check: Optional["callable"] = None,
+    _on_stage_change: Optional["callable"] = None,
 ):
-    """Execute the 6-stage v2 ingestion pipeline in a background thread."""
+    """Execute the 6-stage v2 ingestion pipeline in a background thread.
+
+    When ``_cancel_check`` is provided (e.g. by the Celery task wrapper), it
+    is used instead of the in-memory JobManager's ``is_cancel_requested``.
+    This allows the pipeline to run in a separate worker process while still
+    supporting cooperative cancellation via Redis.
+
+    When ``_on_stage_change`` is provided, it is called with the job's
+    current state dict after each stage transition, allowing the Celery
+    task to sync status to Redis for cross-process visibility.
+    """
     manager = JobManager()
     manager.start_job(job_id)
-    cancel_check = lambda: manager.is_cancel_requested(job_id)
+    cancel_check = _cancel_check or (lambda: manager.is_cancel_requested(job_id))
+
+    def _sync_state():
+        if _on_stage_change:
+            job = manager.get_job(job_id)
+            if job:
+                _on_stage_change(job.to_dict())
+
+    _sync_state()
     parse_source = temp_path or source_uri
     ocr_temp_path = None
+    ocr_cached = False
     dedup_store = DeduplicationStore()
 
     try:
         registry = CapabilityRegistry()
 
         manager.advance_stage(job_id, JobStage.DETECTING.value)
+        _sync_state()
         tika = registry.get_instance("tika_client")
         if tika.health_check():
             detection = tika.detect(parse_source)
@@ -318,16 +431,32 @@ def process_document_v2(
             raise CancellationError("Job cancelled during detection")
 
         manager.advance_stage(job_id, JobStage.PREPROCESSING.value)
+        _sync_state()
         preprocessor = registry.get_instance("ocrmypdf_preprocessor")
         if preprocessor.needs_ocr(detection):
-            ocr_fd, ocr_temp_path = tempfile.mkstemp(suffix=".pdf")
-            os.close(ocr_fd)
-            if preprocessor.preprocess(parse_source, ocr_temp_path, cancel_check):
+            # Use a deterministic OCR cache path based on content_hash so
+            # that retries (e.g. after OOM-kill during Docling) can skip the
+            # expensive OCR step.
+            ocr_cache_dir = os.path.join(settings.storage_path, "tmp", "ocr_cache")
+            os.makedirs(ocr_cache_dir, exist_ok=True)
+            hash_hex = (content_hash or "").split(":", 1)[-1] or "unknown"
+            ocr_temp_path = os.path.join(ocr_cache_dir, f"{hash_hex}.pdf")
+
+            if os.path.exists(ocr_temp_path) and os.path.getsize(ocr_temp_path) > 0:
+                logger.info(
+                    f"Job {job_id}: reusing cached OCR output "
+                    f"({os.path.getsize(ocr_temp_path)} bytes) — skipping OCRmyPDF"
+                )
+                ocr_cached = True
                 parse_source = ocr_temp_path
+            else:
+                if preprocessor.preprocess(parse_source, ocr_temp_path, cancel_check):
+                    parse_source = ocr_temp_path
         if cancel_check():
             raise CancellationError("Job cancelled during preprocessing")
 
         manager.advance_stage(job_id, JobStage.PARSING.value)
+        _sync_state()
         if detection.content_type.startswith("image/"):
             parser_key = "v2_image_handler"
             records = [CanonicalRecord(
@@ -341,13 +470,114 @@ def process_document_v2(
                 parser = registry.get_instance(parser_key)
             except KeyError:
                 parser = registry.get_instance("parser:default")
-            records: List[CanonicalRecord] = parser.parse(parse_source, detection.content_type, cancel_check)
+
+            # ── PDF splitting for large documents ──────────────────────────
+            # Docling loads the entire PDF into memory. For large documents
+            # (e.g. 1000+ pages after OCR), this causes OOM-kills. Split
+            # the PDF into chunks and parse each separately, then merge.
+            records: List[CanonicalRecord] = []
+            split_chunks = None
+
+            if (
+                detection.content_type == "application/pdf"
+                and settings.docling_pdf_split_page_threshold > 0
+            ):
+                try:
+                    from retriva.ingestion.pdf_splitter import get_page_count, split_pdf
+                    page_count = get_page_count(parse_source)
+                    if page_count > settings.docling_pdf_split_page_threshold:
+                        logger.info(
+                            f"Job {job_id}: PDF has {page_count} pages "
+                            f"(threshold={settings.docling_pdf_split_page_threshold}) — "
+                            f"splitting into {settings.docling_pdf_split_chunk_size}-page chunks"
+                        )
+                        split_chunks = split_pdf(
+                            parse_source,
+                            chunk_size=settings.docling_pdf_split_chunk_size,
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Job {job_id}: PDF split check failed ({e}) — "
+                        f"parsing whole file"
+                    )
+
+            if split_chunks:
+                # Check for existing checkpoints from a previous (failed)
+                # attempt so we can resume parsing from the last completed
+                # part instead of re-doing everything.
+                manifest = _load_checkpoint_manifest(job_id)
+                completed_parts: set[int] = set()
+                if manifest is not None:
+                    completed_parts = set(manifest.get("completed", []))
+                    if completed_parts:
+                        logger.info(
+                            f"Job {job_id}: resuming chunked parsing — "
+                            f"{len(completed_parts)}/{len(split_chunks)} parts "
+                            f"already checkpointed"
+                        )
+
+                manifest = manifest or {
+                    "total_parts": len(split_chunks),
+                    "content_type": detection.content_type,
+                    "completed": [],
+                }
+                # Keep manifest in sync if the split count changed
+                manifest["total_parts"] = len(split_chunks)
+
+                for chunk_idx, (chunk_path, start_page, end_page) in enumerate(split_chunks):
+                    if cancel_check():
+                        raise CancellationError("Cancelled during chunked parsing")
+
+                    # Try to load a checkpoint for this part
+                    cached = None
+                    if chunk_idx in completed_parts:
+                        cached = _load_part_checkpoint(job_id, chunk_idx)
+                    if cached is not None:
+                        logger.info(
+                            f"Job {job_id}: chunk {chunk_idx + 1}/{len(split_chunks)} "
+                            f"(pages {start_page}-{end_page}) — loaded from checkpoint "
+                            f"({len(cached)} records)"
+                        )
+                        records.extend(cached)
+                        continue
+
+                    logger.info(
+                        f"Job {job_id}: parsing chunk {chunk_idx + 1}/{len(split_chunks)} "
+                        f"(pages {start_page}-{end_page})"
+                    )
+                    chunk_records = parser.parse(
+                        chunk_path, detection.content_type, cancel_check
+                    )
+                    records.extend(chunk_records)
+                    logger.info(
+                        f"Job {job_id}: chunk {chunk_idx + 1} produced "
+                        f"{len(chunk_records)} records"
+                    )
+
+                    # Checkpoint this part's records to disk so a retry
+                    # can skip it if the worker dies later.
+                    try:
+                        _save_part_checkpoint(job_id, chunk_idx, chunk_records)
+                        completed_parts.add(chunk_idx)
+                        manifest["completed"] = sorted(completed_parts)
+                        _save_checkpoint_manifest(job_id, manifest)
+                    except Exception as ckpt_err:
+                        logger.warning(
+                            f"Job {job_id}: failed to checkpoint part "
+                            f"{chunk_idx + 1} ({ckpt_err}) — continuing"
+                        )
+                # Clean up chunk files
+                from retriva.ingestion.pdf_splitter import cleanup_chunks
+                cleanup_chunks(split_chunks)
+            else:
+                records = parser.parse(parse_source, detection.content_type, cancel_check)
 
         if cancel_check():
             raise CancellationError("Job cancelled after parsing")
         logger.info(f"Job {job_id}: parser '{parser_key}' produced {len(records)} records")
 
         manager.advance_stage(job_id, JobStage.NORMALIZATION.value)
+        _sync_state()
         try:
             vlm = registry.get_instance("vlm_describer")
             described = 0
@@ -395,17 +625,20 @@ def process_document_v2(
                 f"Removing catalog record so a later retry is not blocked as a duplicate."
             )
             _cleanup_failed_dedup_record(dedup_store, doc_id, job_id, reason="empty_content")
+            _cleanup_checkpoints(job_id)
             manager.complete_job(job_id)
             return
         if cancel_check():
             raise CancellationError("Job cancelled during normalization")
 
         manager.advance_stage(job_id, JobStage.CHUNKING.value)
+        _sync_state()
         chunks = registry.get_instance("chunker").create_chunks(normalized)
         if cancel_check():
             raise CancellationError("Job cancelled during chunking")
 
         manager.advance_stage(job_id, JobStage.INDEXING.value)
+        _sync_state()
         client = get_client()
         upsert_chunks(client, chunks, cancel_check=cancel_check)
 
@@ -417,14 +650,23 @@ def process_document_v2(
                 pass  # record may not exist for non-upload paths
 
         manager.complete_job(job_id)
+        _sync_state()
         logger.info(f"new_document_ingestion_started: job={job_id}, doc_id={doc_id}, "
                     f"kb_id={kb_id}, content_hash={content_hash}, source_path={source_uri}, "
                     f"chunks={len(chunks)}, deduplicated=false, metadata_updated=false")
 
+        # Parsing checkpoints are no longer needed once indexing succeeds.
+        _cleanup_checkpoints(job_id)
+
     except CancellationError:
         manager.mark_cancelled(job_id)
+        _sync_state()
+        # User-initiated cancellation: discard checkpoints so a fresh upload
+        # starts clean (the Celery task is not retried on cancellation).
+        _cleanup_checkpoints(job_id)
     except Exception as e:
         manager.fail_job(job_id, str(e))
+        _sync_state()
         logger.error(f"Job {job_id} failed: {e}")
         # A failed ingest must not leave behind a catalog record, otherwise the
         # (kb_id, content_hash, collection) key would make the next upload of
@@ -434,8 +676,15 @@ def process_document_v2(
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
-        if ocr_temp_path and os.path.exists(ocr_temp_path):
-            os.remove(ocr_temp_path)
+        # Don't delete cached OCR output on failure — it may be reused on
+        # retry.  Only delete on successful completion.
+        if ocr_temp_path and os.path.exists(ocr_temp_path) and not ocr_cached:
+            try:
+                job = manager.get_job(job_id)
+                if job and job.status == JobStatus.COMPLETED:
+                    os.remove(ocr_temp_path)
+            except Exception:
+                pass
         # Remove transient image files extracted by the parser for VLM
         # enrichment; they have served their purpose once chunks are built.
         for _rec in locals().get("records", []) or []:
@@ -658,16 +907,23 @@ async def ingest_document_v2(
     logger.debug(f"v2 ingest request: source_uri={payload.source_uri} kb_id={payload.kb_id}")
     manager = JobManager()
     job = manager.create_job(source=payload.source_uri, job_type="v2_document")
-    background_tasks.add_task(
-        process_document_v2,
-        payload.source_uri,
-        payload.content_type,
-        payload.user_metadata,
-        payload.parser_hint,
-        job.id,
+
+    task_payload = dict(
+        source_uri=payload.source_uri,
+        content_type=payload.content_type,
+        user_metadata=payload.user_metadata,
+        parser_hint=payload.parser_hint,
+        job_id=job.id,
         kb_id=payload.kb_id,
-        # No size/status/created_at for generic ingest (will use defaults)
     )
+
+    from retriva.ingestion_api.celery_app import celery_enabled
+    if celery_enabled():
+        from retriva.ingestion_api.tasks import dispatch_document_task
+        dispatch_document_task(task_payload)
+    else:
+        background_tasks.add_task(process_document_v2, **task_payload)
+
     return IngestResponseV2(
         status="accepted",
         message="Document accepted for processing",
@@ -700,14 +956,26 @@ async def ingest_mediawiki_export_v2(
 
     from retriva.ingestion.mediawiki_v2_parser import process_mediawiki_export
 
-    background_tasks.add_task(
-        process_mediawiki_export,
-        payload.staged_dir,
-        payload.user_metadata,
-        payload.kb_id,
-        lambda: manager.is_cancel_requested(job.id),
-        job.id,
+    task_payload = dict(
+        job_id=job.id,
+        staged_dir=payload.staged_dir,
+        user_metadata=payload.user_metadata,
+        kb_id=payload.kb_id,
     )
+
+    from retriva.ingestion_api.celery_app import celery_enabled
+    if celery_enabled():
+        from retriva.ingestion_api.tasks import dispatch_mediawiki_task
+        dispatch_mediawiki_task(task_payload)
+    else:
+        background_tasks.add_task(
+            process_mediawiki_export,
+            payload.staged_dir,
+            payload.user_metadata,
+            payload.kb_id,
+            lambda: manager.is_cancel_requested(job.id),
+            job.id,
+        )
     return IngestResponseV2(
         status="accepted",
         message="MediaWiki export accepted for processing",
@@ -853,20 +1121,23 @@ async def upload_document_v2(
     manager = JobManager()
     job = manager.create_job(source=source_path, job_type="v2_upload")
 
-    # Save bytes to temp file
+    # Save bytes to temp file in the SHARED storage volume so the Celery
+    # worker (separate container) can access it.  Using /tmp would make the
+    # file invisible to the worker.
     suffix = os.path.splitext(filename)[1] or ""
-    temp_fd, temp_path = tempfile.mkstemp(suffix=suffix)
+    tmp_dir = os.path.join(settings.storage_path, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    temp_fd, temp_path = tempfile.mkstemp(suffix=suffix, dir=tmp_dir)
     os.close(temp_fd)
     with open(temp_path, "wb") as f:
         f.write(file_bytes)
 
-    background_tasks.add_task(
-        process_document_v2,
-        source_path,
-        content_type,
-        parsed_metadata,
-        None,  # parser_hint
-        job.id,
+    task_payload = dict(
+        source_uri=source_path,
+        content_type=content_type,
+        user_metadata=parsed_metadata,
+        parser_hint=None,
+        job_id=job.id,
         temp_path=temp_path,
         doc_id=doc_id,
         content_hash=content_hash,
@@ -876,6 +1147,13 @@ async def upload_document_v2(
         ingestion_status="completed",
         created_at=record.created_at,
     )
+
+    from retriva.ingestion_api.celery_app import celery_enabled
+    if celery_enabled():
+        from retriva.ingestion_api.tasks import dispatch_document_task
+        dispatch_document_task(task_payload)
+    else:
+        background_tasks.add_task(process_document_v2, **task_payload)
 
     logger.info(
         f"new_document_ingestion_started: doc_id={doc_id}, kb_id={kb_id}, "
