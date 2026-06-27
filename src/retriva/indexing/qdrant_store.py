@@ -76,15 +76,16 @@ def _upsert_with_retry(client: QdrantClient, points: List[PointStruct], batch_nu
                     f"[{rid}] Upsert batch {batch_num} failed after {MAX_RETRIES} attempts: {e}"
                 ) from e
 
-def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optional[Callable[[], bool]] = None):
+def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optional[Callable[[], bool]] = None, progress_callback: Optional[Callable[[int, int], None]] = None):
     if not chunks:
         return
-        
+
     init_collection(client)
     rid = _get_req_id()
-    logger.info(f"[{rid}] Indexing {len(chunks)} chunks in batches of {settings.indexing_batch_size}...")
-    
-    for i in range(0, len(chunks), settings.indexing_batch_size):
+    total = len(chunks)
+    logger.info(f"[{rid}] Indexing {total} chunks in batches of {settings.indexing_batch_size}...")
+
+    for i in range(0, total, settings.indexing_batch_size):
         # Cancellation checkpoint — check before each batch
         if cancel_check and cancel_check():
             from retriva.ingestion_api.job_manager import CancellationError
@@ -121,6 +122,10 @@ def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optio
         
         logger.debug(f"[{rid}] Upserting batch {batch_num} ({len(points)} points) to '{COLLECTION_NAME}'...")
         _upsert_with_retry(client, points, batch_num)
+
+        if progress_callback:
+            done = min(i + settings.indexing_batch_size, total)
+            progress_callback(done, total)
 
 
 def build_qdrant_filter(filters: List[Dict[str, Any]]) -> Optional[Filter]:

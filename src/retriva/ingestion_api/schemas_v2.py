@@ -168,6 +168,15 @@ class JobResponseV2(BaseModel):
         default_factory=list,
         description="Ordered list of stages that have finished.",
     )
+    stage_detail: Optional[str] = Field(
+        None,
+        description="Fine-grained description of the sub-activity within the current stage "
+        "(e.g. 'parsing chunk 2/3 (pages 501-1000)').",
+    )
+    progress: Optional[int] = Field(
+        None,
+        description="0-100 percentage of completion for the current stage.",
+    )
     created_at: str
     updated_at: str
     error: Optional[str] = None

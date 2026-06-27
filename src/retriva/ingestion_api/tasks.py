@@ -374,6 +374,14 @@ def get_task_status(job_id: str) -> Optional[dict]:
     return {
         "job_id": job_id,
         "status": _celery_state_to_job_status(result.state),
+        "source": "",
+        "job_type": "v2_document",
+        "current_stage": None,
+        "stages_completed": [],
+        "stage_detail": None,
+        "progress": None,
+        "created_at": "",
+        "updated_at": "",
         "error": str(result.result) if result.failed() else None,
     }
 

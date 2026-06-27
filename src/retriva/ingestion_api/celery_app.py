@@ -100,6 +100,9 @@ def get_celery_app():
         # task is re-queued.
         task_acks_late=True,
         task_reject_on_worker_lost=True,
+        # Report STARTED state so the AsyncResult fallback can distinguish
+        # "queued" from "running" even before the first Redis sync.
+        task_track_started=True,
         # Don't prefetch more than one task at a time — OCR jobs are heavy.
         worker_prefetch_multiplier=settings.celery_worker_prefetch_multiplier,
         worker_concurrency=settings.celery_worker_concurrency,

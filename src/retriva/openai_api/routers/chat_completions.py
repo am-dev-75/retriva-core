@@ -67,39 +67,50 @@ def _extract_user_question(request: ChatCompletionRequest) -> str:
 
 
 def _build_citations(chunks: list[dict]) -> list[Citation]:
-    """Extract citation metadata from retrieved chunk payloads in Open WebUI format."""
+    """Extract citation metadata from retrieved chunk payloads in Open WebUI format.
+
+    Citations are grouped by ``filename`` + ``section_path`` so that different
+    sections of the same document get distinct citation numbers.  This keeps
+    the grouping in sync with ``prompting._citation_label``.
+    """
     by_norm_title = {}
     for chunk in chunks:
-        # Use filename for consistent citations
+        # Build the citation label: filename + section_path
         raw_title = chunk.get("filename")
         if not raw_title:
              path = chunk.get("source_path", "unknown")
              raw_title = Path(path).name
              if raw_title == "unknown":
                  raw_title = "Unknown Source"
-        
-        # Group by title to match the simplified prompt builder logic
-        norm_key = raw_title
-        
+
+        section = chunk.get("section_path") or ""
+        if section:
+            label = f"{raw_title} — {section}"
+        else:
+            label = raw_title
+
+        # Group by label to match the prompt builder logic
+        norm_key = label
+
         text = chunk.get("text", "")
         path = chunk.get("source_path", "unknown")
-        
+
         if norm_key not in by_norm_title:
             by_norm_title[norm_key] = {
-                "source": {"name": raw_title},
+                "source": {"name": label},
                 "document": [text],
-                "metadata": [{"source": path, "title": raw_title, "user_metadata": chunk.get("user_metadata")}]
+                "metadata": [{"source": path, "title": label, "user_metadata": chunk.get("user_metadata")}]
             }
         else:
             # Deduplicate text snippets
             if text not in by_norm_title[norm_key]["document"]:
                 by_norm_title[norm_key]["document"].append(text)
-            
+
             # Only add unique metadata entries (per path)
             if not any(m["source"] == path for m in by_norm_title[norm_key]["metadata"]):
                 # Apply per-citation metadata limit
                 if settings.max_metadata_per_citation <= 0 or len(by_norm_title[norm_key]["metadata"]) < settings.max_metadata_per_citation:
-                    by_norm_title[norm_key]["metadata"].append({"source": path, "title": raw_title, "user_metadata": chunk.get("user_metadata")})
+                    by_norm_title[norm_key]["metadata"].append({"source": path, "title": label, "user_metadata": chunk.get("user_metadata")})
 
     results = [Citation(**v) for v in by_norm_title.values()]
     

@@ -31,11 +31,32 @@ router = APIRouter(prefix="/api/v2/jobs", tags=["v2-jobs"])
 
 @router.get("", response_model=list[JobResponseV2])
 async def list_jobs_v2():
-    """List all v2 ingestion jobs with stage information."""
+    """List all v2 ingestion jobs with stage information.
+
+    When Celery is enabled, enriches each job with its Redis-backed state
+    (which is updated by the worker process) so the list reflects real-time
+    progress rather than the stale in-memory snapshot from job creation.
+    """
     manager = JobManager()
     jobs = manager.list_jobs()
     # Filter to v2 jobs only
     v2_jobs = [j for j in jobs if j.job_type.startswith("v2_")]
+
+    # When Celery is enabled, the worker process updates job state in Redis.
+    # The API process's in-memory JobManager is stale (it created the job
+    # but never receives updates from the worker).  Merge Redis state.
+    from retriva.ingestion_api.celery_app import celery_enabled
+    if celery_enabled():
+        from retriva.ingestion_api.tasks import get_task_status
+        result = []
+        for j in v2_jobs:
+            task_state = get_task_status(j.id)
+            if task_state is not None:
+                result.append(JobResponseV2(**task_state))
+            else:
+                result.append(JobResponseV2(**j.to_dict()))
+        return result
+
     return [JobResponseV2(**j.to_dict()) for j in v2_jobs]
 
 
@@ -67,6 +88,8 @@ async def get_job_v2(job_id: str):
                 error=task_state.get("error"),
                 current_stage=task_state.get("current_stage"),
                 stages_completed=task_state.get("stages_completed", []),
+                stage_detail=task_state.get("stage_detail"),
+                progress=task_state.get("progress"),
             )
 
     # Fall back to in-memory (BackgroundTasks mode or pre-Celery)

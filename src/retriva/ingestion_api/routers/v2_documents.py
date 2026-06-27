@@ -392,6 +392,19 @@ def process_document_v2(
     task to sync status to Redis for cross-process visibility.
     """
     manager = JobManager()
+    # When running in a Celery worker process, the job was created in the
+    # API process and doesn't exist in this process's JobManager singleton.
+    # Register it locally so that start_job / advance_stage / set_stage_detail
+    # work and _sync_state can report progress to Redis.
+    if manager.get_job(job_id) is None:
+        from retriva.ingestion_api.job_manager import Job as _Job, JobStatus as _JS
+        with manager._lock:
+            manager._jobs[job_id] = _Job(
+                id=job_id,
+                status=_JS.PENDING,
+                source=source_uri,
+                job_type="v2_document",
+            )
     manager.start_job(job_id)
     cancel_check = _cancel_check or (lambda: manager.is_cancel_requested(job_id))
 
@@ -429,6 +442,8 @@ def process_document_v2(
             raise FileNotFoundError(f"Source not found: {parse_source}")
         if cancel_check():
             raise CancellationError("Job cancelled during detection")
+        manager.set_stage_detail(job_id, f"detected {detection.content_type}", 100)
+        _sync_state()
 
         manager.advance_stage(job_id, JobStage.PREPROCESSING.value)
         _sync_state()
@@ -454,6 +469,8 @@ def process_document_v2(
                     parse_source = ocr_temp_path
         if cancel_check():
             raise CancellationError("Job cancelled during preprocessing")
+        manager.set_stage_detail(job_id, "preprocessing complete", 100)
+        _sync_state()
 
         manager.advance_stage(job_id, JobStage.PARSING.value)
         _sync_state()
@@ -524,6 +541,7 @@ def process_document_v2(
                 # Keep manifest in sync if the split count changed
                 manifest["total_parts"] = len(split_chunks)
 
+                total_chunks = len(split_chunks)
                 for chunk_idx, (chunk_path, start_page, end_page) in enumerate(split_chunks):
                     if cancel_check():
                         raise CancellationError("Cancelled during chunked parsing")
@@ -533,18 +551,21 @@ def process_document_v2(
                     if chunk_idx in completed_parts:
                         cached = _load_part_checkpoint(job_id, chunk_idx)
                     if cached is not None:
-                        logger.info(
-                            f"Job {job_id}: chunk {chunk_idx + 1}/{len(split_chunks)} "
-                            f"(pages {start_page}-{end_page}) — loaded from checkpoint "
-                            f"({len(cached)} records)"
+                        detail = f"chunk {chunk_idx + 1}/{total_chunks} (pages {start_page}-{end_page}) — checkpoint"
+                        logger.info(f"Job {job_id}: {detail} ({len(cached)} records)")
+                        manager.set_stage_detail(
+                            job_id, detail,
+                            int(((chunk_idx + 1) / total_chunks) * 100),
                         )
+                        _sync_state()
                         records.extend(cached)
                         continue
 
-                    logger.info(
-                        f"Job {job_id}: parsing chunk {chunk_idx + 1}/{len(split_chunks)} "
-                        f"(pages {start_page}-{end_page})"
-                    )
+                    detail = f"parsing chunk {chunk_idx + 1}/{total_chunks} (pages {start_page}-{end_page})"
+                    progress = int((chunk_idx / total_chunks) * 100)
+                    manager.set_stage_detail(job_id, detail, progress)
+                    _sync_state()
+                    logger.info(f"Job {job_id}: {detail}")
                     chunk_records = parser.parse(
                         chunk_path, detection.content_type, cancel_check
                     )
@@ -566,6 +587,10 @@ def process_document_v2(
                             f"Job {job_id}: failed to checkpoint part "
                             f"{chunk_idx + 1} ({ckpt_err}) — continuing"
                         )
+                manager.set_stage_detail(
+                    job_id, f"parsed {total_chunks} chunks", 100,
+                )
+                _sync_state()
                 # Clean up chunk files
                 from retriva.ingestion.pdf_splitter import cleanup_chunks
                 cleanup_chunks(split_chunks)
@@ -575,6 +600,8 @@ def process_document_v2(
         if cancel_check():
             raise CancellationError("Job cancelled after parsing")
         logger.info(f"Job {job_id}: parser '{parser_key}' produced {len(records)} records")
+        manager.set_stage_detail(job_id, f"parsed {len(records)} records", 100)
+        _sync_state()
 
         manager.advance_stage(job_id, JobStage.NORMALIZATION.value)
         _sync_state()
@@ -627,6 +654,7 @@ def process_document_v2(
             _cleanup_failed_dedup_record(dedup_store, doc_id, job_id, reason="empty_content")
             _cleanup_checkpoints(job_id)
             manager.complete_job(job_id)
+            _sync_state()
             return
         if cancel_check():
             raise CancellationError("Job cancelled during normalization")
@@ -634,13 +662,25 @@ def process_document_v2(
         manager.advance_stage(job_id, JobStage.CHUNKING.value)
         _sync_state()
         chunks = registry.get_instance("chunker").create_chunks(normalized)
+        manager.set_stage_detail(job_id, f"created {len(chunks)} chunks", 100)
+        _sync_state()
         if cancel_check():
             raise CancellationError("Job cancelled during chunking")
 
         manager.advance_stage(job_id, JobStage.INDEXING.value)
         _sync_state()
         client = get_client()
-        upsert_chunks(client, chunks, cancel_check=cancel_check)
+        manager.set_stage_detail(job_id, f"indexing {len(chunks)} chunks", 0)
+        _sync_state()
+
+        def _indexing_progress(done: int, total: int):
+            pct = int((done / total) * 100) if total > 0 else 0
+            manager.set_stage_detail(job_id, f"indexing {done}/{total} chunks", pct)
+            _sync_state()
+
+        upsert_chunks(client, chunks, cancel_check=cancel_check, progress_callback=_indexing_progress)
+        manager.set_stage_detail(job_id, f"indexed {len(chunks)} chunks", 100)
+        _sync_state()
 
         # Finalise the catalog record
         if doc_id:
@@ -668,14 +708,34 @@ def process_document_v2(
         manager.fail_job(job_id, str(e))
         _sync_state()
         logger.error(f"Job {job_id} failed: {e}")
-        # A failed ingest must not leave behind a catalog record, otherwise the
-        # (kb_id, content_hash, collection) key would make the next upload of
+        # A failed ingest must not leave behind a catalog record or orphaned
+        # Qdrant chunks.  The catalog record would make the next upload of
         # the same file be treated as an already-ingested duplicate and skip
-        # processing — even though no chunks were ever indexed.
+        # processing.  Orphaned chunks would make the document appear
+        # "completed" in the UI even though indexing was incomplete.
         _cleanup_failed_dedup_record(dedup_store, doc_id, job_id, reason="exception")
+        if doc_id:
+            try:
+                client = get_client()
+                delete_chunks_by_doc_id(client, doc_id)
+                logger.info(
+                    f"failed_ingestion_chunks_removed: job={job_id}, "
+                    f"doc_id={doc_id}"
+                )
+            except Exception as cleanup_err:
+                logger.warning(
+                    f"Job {job_id}: failed to clean up orphaned chunks "
+                    f"for doc_id={doc_id} ({cleanup_err})"
+                )
     finally:
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+        # Only clean up the temp file on successful completion.
+        # On failure, keep it so Celery retries can reuse it.
+        try:
+            job = manager.get_job(job_id)
+            if temp_path and os.path.exists(temp_path) and job and job.status == JobStatus.COMPLETED:
+                os.remove(temp_path)
+        except Exception:
+            pass
         # Don't delete cached OCR output on failure — it may be reused on
         # retry.  Only delete on successful completion.
         if ocr_temp_path and os.path.exists(ocr_temp_path) and not ocr_cached:
@@ -995,12 +1055,18 @@ async def upload_document_v2(
     content_type: str = Form(None),
     user_metadata: str = Form(None),
     kb_id: str = Form("default"),
+    force: bool = Form(False),
 ) -> IngestResponseV2:
     """Multipart file upload with content-hash deduplication.
 
     On first upload: full 6-stage pipeline, returns status='accepted'.
     On duplicate (same kb_id + SHA-256): merges metadata/paths, patches
     Qdrant payloads, returns status='already_exists' or 'metadata_updated'.
+
+    When ``force=True``: removes any existing dedup record for this content
+    hash and re-ingests the file from scratch.  Use this to recover from
+    interrupted ingestions (e.g. worker crash, OOM-kill) that leave a stale
+    catalog entry blocking re-upload.
     """
     # KB enforcement (SDD): unknown kb_id → 404 before any I/O.
     require_kb_exists(kb_id)
@@ -1033,6 +1099,39 @@ async def upload_document_v2(
     # -- 3. Dedup lookup ----------------------------------------------------
     dedup_store = DeduplicationStore()
     existing = dedup_store.get_by_hash(kb_id, content_hash, collection_name=COLLECTION_NAME)
+
+    # Treat records from interrupted ingestions as stale: a "pending" record
+    # with zero chunks means the worker never completed (crash, OOM, restart).
+    # These should not block re-upload.
+    is_stale = (
+        existing is not None
+        and existing.ingestion_status == "pending"
+        and existing.chunk_count == 0
+    )
+
+    if force and existing is not None:
+        # User explicitly requested re-ingestion.  Remove the old catalog
+        # record and any orphaned Qdrant chunks so the file is processed
+        # from scratch.
+        logger.info(
+            f"force_reingest: removing dedup record doc_id={existing.doc_id}, "
+            f"kb_id={kb_id}, content_hash={content_hash}"
+        )
+        dedup_store.delete_by_doc_id(existing.doc_id)
+        try:
+            client = get_client()
+            delete_chunks_by_doc_id(client, existing.doc_id)
+        except Exception as cleanup_err:
+            logger.warning(f"force_reingest: Qdrant cleanup failed ({cleanup_err})")
+        existing = None
+    elif is_stale:
+        logger.info(
+            f"stale_dedup_record_detected: doc_id={existing.doc_id}, "
+            f"kb_id={kb_id}, content_hash={content_hash} — "
+            f"removing and re-ingesting"
+        )
+        dedup_store.delete_by_doc_id(existing.doc_id)
+        existing = None
 
     if existing is not None:
         # ── Duplicate path ──────────────────────────────────────────────────

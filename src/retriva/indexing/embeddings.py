@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 import time
 from openai import OpenAI
 from retriva.config import settings
@@ -25,6 +26,16 @@ logger = get_logger(__name__)
 
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds
+
+# Maximum input length (in characters) for a single text sent to the embedding
+# API.  Most embedding models accept up to ~8K tokens; 32K chars is a safe
+# upper bound that avoids silent rejections from providers like OpenRouter.
+MAX_EMBEDDING_INPUT_CHARS = 32_000
+
+# Pattern to strip base64-encoded data URIs (e.g. "data:image/png;base64,...")
+# which can be tens of thousands of characters and provide no semantic value
+# to the embedding model.
+_DATA_URI_RE = re.compile(r"data:[^;]+;base64,[A-Za-z0-9+/=\s]+")
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +57,27 @@ def _is_network_unreachable(exc: BaseException) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Text sanitization before embedding
+# ---------------------------------------------------------------------------
+
+def _sanitize_for_embedding(text: str) -> str:
+    """Clean text before sending to the embedding API.
+
+    - Strips base64 data URIs (image payloads) that bloat the input and
+      provide no semantic value.
+    - Truncates to ``MAX_EMBEDDING_INPUT_CHARS`` to avoid provider rejections.
+    """
+    if not text:
+        return text
+    # Remove base64 data URIs
+    cleaned = _DATA_URI_RE.sub("[image]", text)
+    # Truncate if still too long
+    if len(cleaned) > MAX_EMBEDDING_INPUT_CHARS:
+        cleaned = cleaned[:MAX_EMBEDDING_INPUT_CHARS]
+    return cleaned
+
+
+# ---------------------------------------------------------------------------
 # Core embedding with smart retry
 # ---------------------------------------------------------------------------
 
@@ -57,10 +89,11 @@ def _embed_batch(client: OpenAI, texts: List[str]) -> List[List[float]]:
     hiccups) but fails fast on non-transient network errors such as
     'Network is unreachable' (errno 101).
     """
+    sanitized = [_sanitize_for_embedding(t) for t in texts]
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = client.embeddings.create(
-                input=texts,
+                input=sanitized,
                 model=settings.embedding_model,
             )
             if not response.data:
@@ -94,6 +127,21 @@ def _embed_batch(client: OpenAI, texts: List[str]) -> List[List[float]]:
                 logger.warning(
                     f"Embedding attempt {attempt}/{MAX_RETRIES} failed "
                     f"({type(e).__name__}). Retrying in {delay:.1f}s..."
+                )
+                time.sleep(delay)
+            else:
+                raise RuntimeError(
+                    f"Embedding failed after {MAX_RETRIES} attempts: {e}"
+                ) from e
+
+        except ValueError as e:
+            # Transient API issue (e.g. empty response from provider).
+            # Retry with backoff before giving up.
+            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            if attempt < MAX_RETRIES:
+                logger.warning(
+                    f"Embedding attempt {attempt}/{MAX_RETRIES} failed "
+                    f"({e}). Retrying in {delay:.1f}s..."
                 )
                 time.sleep(delay)
             else:
@@ -173,7 +221,16 @@ def get_embeddings(texts: List[str], cancel_check: Optional[Callable[[], bool]] 
                     )
                     return all_embeddings
                 except RuntimeError as e:
-                    logger.error(f"Text embedding failed: {e}")
-                    raise RuntimeError(f"Failed to embed text at index {i + j}: {e}") from e
+                    # A single text consistently fails to embed (e.g. too long,
+                    # problematic content, provider silently rejecting it).
+                    # Use a zero-vector fallback so one bad chunk doesn't kill
+                    # the entire ingestion.  The chunk will still be stored and
+                    # searchable by metadata; it just won't have a meaningful
+                    # vector.
+                    logger.warning(
+                        f"Text embedding failed at index {i + j}, using "
+                        f"zero-vector fallback: {e}"
+                    )
+                    all_embeddings.append([0.0] * settings.embedding_dimension)
 
     return all_embeddings

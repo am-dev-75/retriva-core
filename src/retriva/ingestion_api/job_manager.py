@@ -72,6 +72,8 @@ class Job:
     cancel_requested: bool = False
     current_stage: Optional[str] = None
     stages_completed: List[str] = field(default_factory=list)
+    stage_detail: Optional[str] = None
+    progress: Optional[int] = None
 
     def to_dict(self) -> dict:
         return {
@@ -84,6 +86,8 @@ class Job:
             "error": self.error,
             "current_stage": self.current_stage,
             "stages_completed": list(self.stages_completed),
+            "stage_detail": self.stage_detail,
+            "progress": self.progress,
         }
 
 
@@ -183,7 +187,8 @@ class JobManager:
         """Record a pipeline stage transition (v2 jobs only).
 
         Moves the previous ``current_stage`` into ``stages_completed``
-        and sets the new stage.
+        and sets the new stage. Resets ``stage_detail`` and ``progress``
+        since they belong to the previous stage.
         """
         with self._lock:
             job = self._jobs.get(job_id)
@@ -191,8 +196,27 @@ class JobManager:
                 if job.current_stage and job.current_stage not in job.stages_completed:
                     job.stages_completed.append(job.current_stage)
                 job.current_stage = stage
+                job.stage_detail = None
+                job.progress = None
                 job.updated_at = datetime.now(timezone.utc)
                 logger.debug(f"Job {job_id} stage → {stage}")
+
+    def set_stage_detail(self, job_id: str, detail: str, progress: Optional[int] = None) -> None:
+        """Update fine-grained progress within the current stage.
+
+        Args:
+            job_id: The job identifier.
+            detail: Human-readable description of the sub-activity
+                    (e.g. ``"parsing chunk 2/3 (pages 501-1000)"``).
+            progress: Optional 0-100 percentage for the current stage.
+        """
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job and job.status == JobStatus.RUNNING:
+                job.stage_detail = detail
+                if progress is not None:
+                    job.progress = max(0, min(100, progress))
+                job.updated_at = datetime.now(timezone.utc)
 
     # -- Queries -----------------------------------------------------------
 

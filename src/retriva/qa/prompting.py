@@ -20,19 +20,27 @@ def _citation_label(chunk: Dict) -> str:
     """
     Return the canonical source label for a chunk.
 
+    Citations are grouped by ``filename`` + ``section_path`` so that different
+    sections of the same document get distinct citation numbers (e.g. [1] for
+    "Network Settings" and [2] for "Power Supply").  This makes citations
+    actionable even when the entire knowledge base is a single large document.
+
     This MUST match the label used when building citations in
-    ``chat_completions._build_citations`` (which uses ``filename``, falling
-    back to the basename of ``source_path``).  Keeping the two in sync is what
+    ``chat_completions._build_citations``.  Keeping the two in sync is what
     lets the post-processor map a bracketed reference back to a numbered
     citation chip.
     """
-    label = chunk.get("filename")
-    if not label:
+    filename = chunk.get("filename")
+    if not filename:
         path = chunk.get("source_path", "unknown")
-        label = Path(path).name
-        if label == "unknown":
-            label = chunk.get("page_title") or "Unknown Source"
-    return label
+        filename = Path(path).name
+        if filename == "unknown":
+            filename = chunk.get("page_title") or "Unknown Source"
+
+    section = chunk.get("section_path") or ""
+    if section:
+        return f"{filename} — {section}"
+    return filename
 
 
 def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:

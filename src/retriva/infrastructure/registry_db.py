@@ -110,6 +110,9 @@ class RegistryDB:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=NORMAL;")
             conn.execute("PRAGMA foreign_keys=ON;")
+            # Ensure schema exists — the DB file may have been removed
+            # externally (e.g. manual cleanup) after the singleton was created.
+            conn.executescript(KNOWLEDGE_BASES_SCHEMA)
             yield conn
         finally:
             conn.close()
