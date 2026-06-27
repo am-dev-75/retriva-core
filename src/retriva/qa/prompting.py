@@ -129,6 +129,10 @@ CITATION RULES:
 
 LANGUAGE RULE:
 - Detect the language of the question. Respond strictly in that language.
+- When the source context is in a different language from the response language, translate carefully and idiomatically — do not produce word-for-word calques.
+- Use natural, fluent phrasing in the response language. For example, when translating from English to Italian, use "da 20 a 5000 ms" (not "20 a 5000 ms"), "passo" or "incremento" (not "step"), "valore predefinito" (not "default").
+- Keep technical terms in their established localized form when one exists (e.g. "indirizzo IP", "maschera di sottorete", "gateway"). If no established translation exists, keep the original English term.
+- Preserve all numeric values, ranges, and units exactly as they appear in the source — never round or convert units during translation.
 
 CONTEXT:
 {context_str}
