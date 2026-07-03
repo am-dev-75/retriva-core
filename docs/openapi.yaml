@@ -246,6 +246,20 @@ paths:
     post:
       tags: [Jobs v1]
       summary: Request job cancellation
+      description: |
+        Requests cooperative cancellation of an ingestion job.
+
+        This endpoint works for **both v1 and v2 jobs** — the underlying
+        ``JobManager`` is shared.  When Celery is enabled, the Celery task
+        is revoked and a Redis cancel flag is set so the worker can check
+        it at cooperative checkpoints.
+
+        State transitions:
+        * Running/pending → 202 Accepted (status becomes `cancelling`)
+        * Already cancelling/cancelled → 200 OK (idempotent)
+        * Completed/failed → 409 Conflict
+        * Unknown → 404 (unless Celery is enabled, in which case the Redis
+          cancel flag is set and 202 is returned)
       operationId: cancelJob
       parameters:
         - name: job_id
@@ -441,6 +455,15 @@ paths:
                   type: string
                   default: default
                   description: Target knowledge base id. Must exist in the registry.
+                force:
+                  type: boolean
+                  default: false
+                  description: |
+                    Force re-ingestion even if a catalog record already exists
+                    for the same content hash.  Also recovers from stale records
+                    (status `pending`, zero chunks) left by a previous failed
+                    attempt.  When `false` (default), duplicate uploads are
+                    detected and skipped.
       responses:
         "202":
           description: Accepted for processing
@@ -589,6 +612,9 @@ paths:
     get:
       tags: [Metadata v2]
       summary: Get values for a metadata key (path param)
+      description: |
+        The `key` path parameter supports slashes (e.g. `user/project`),
+        matching the FastAPI `{key:path}` converter.
       operationId: getMetadataValuesV2Path
       parameters:
         - name: key
@@ -596,6 +622,7 @@ paths:
           required: true
           schema:
             type: string
+          description: Metadata key, may contain forward slashes.
       responses:
         "200":
           description: Available values
@@ -701,6 +728,8 @@ paths:
           description: Artifact generation still in progress
         "404":
           description: Artifact not found
+        "410":
+          description: Artifact generation failed; content is no longer available
 
   /api/v2/artifacts/capabilities:
     get:
@@ -1158,6 +1187,8 @@ components:
         job_type: { type: string }
         current_stage: { type: string }
         stages_completed: { type: array, items: { type: string } }
+        stage_detail: { type: string, description: "Human-readable detail about the current stage (e.g. 'parsing chunk 7/14')" }
+        progress: { type: number, format: float, description: "Optional 0.0–1.0 progress indicator for the current stage" }
         created_at: { type: string }
         updated_at: { type: string }
         error: { type: string }

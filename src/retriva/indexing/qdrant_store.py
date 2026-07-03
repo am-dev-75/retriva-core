@@ -571,21 +571,23 @@ def search_documents(
     rid = _get_req_id()
     logger.info(f"[{rid}] search_documents_started: query='{query}', mode={metadata_filter_mode}, discovery={is_discovery}")
     
-    if is_discovery and query:
+    if is_discovery:
         # Wildcard/Regex Search for Discovery (Python-side filtering as Qdrant lacks MatchRegex)
         import re
-        # Convert glob (*, ?) to regex
-        regex_query = re.escape(query).replace(r'\*', '.*').replace(r'\?', '.')
-        # If it doesn't start/end with wildcards, assume partial match
-        if not regex_query.startswith('.*'): regex_query = '.*' + regex_query
-        if not regex_query.endswith('.*'): regex_query = regex_query + '.*'
-        
-        try:
-            flags = 0 if case_sensitive else re.IGNORECASE
-            pattern = re.compile(regex_query, flags)
-        except re.error as e:
-            logger.error(f"[{rid}] Invalid discovery query '{query}': {e}")
-            return []
+        pattern = None
+        if query:
+            # Convert glob (*, ?) to regex
+            regex_query = re.escape(query).replace(r'\*', '.*').replace(r'\?', '.')
+            # If it doesn't start/end with wildcards, assume partial match
+            if not regex_query.startswith('.*'): regex_query = '.*' + regex_query
+            if not regex_query.endswith('.*'): regex_query = regex_query + '.*'
+            
+            try:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                pattern = re.compile(regex_query, flags)
+            except re.error as e:
+                logger.error(f"[{rid}] Invalid discovery query '{query}': {e}")
+                return []
 
         must_conditions = []
         if kb_ids:
@@ -629,8 +631,8 @@ def search_documents(
                     payload = point.payload
                     filename = payload.get("filename") or ""
                     
-                    # Apply regex matching against filename (matches UI display)
-                    if pattern.search(filename):
+                    # Apply regex matching against filename if query was provided
+                    if not pattern or pattern.search(filename):
                         doc_id = payload.get("doc_id")
                         if doc_id and doc_id not in unique_docs:
                             # Build match reasons

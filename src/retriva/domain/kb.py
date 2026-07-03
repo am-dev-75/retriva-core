@@ -404,3 +404,35 @@ def seed_default_kb(registry: Optional[KBRegistry] = None) -> KBRecord:
     except KBConflictError:
         # Race with another worker; re-read.
         return registry.get(DEFAULT_KB_ID)
+
+
+def seed_collection_kb(registry: Optional[KBRegistry] = None) -> Optional[KBRecord]:
+    """Ensure the KB matching settings.qdrant_collection_name exists.
+
+    Auto-provisions the KB if a custom QDRANT_COLLECTION_NAME was configured,
+    preventing 404s on fresh deployments.
+    """
+    from retriva.config import settings
+
+    collection_name = settings.qdrant_collection_name
+    if collection_name == DEFAULT_KB_ID:
+        return None
+
+    registry = registry or KBRegistry()
+    try:
+        record = registry.get(collection_name)
+        return record
+    except KBNotFoundError:
+        pass
+
+    try:
+        record = registry.create(
+            kb_id=collection_name,
+            name=collection_name,
+            description=f"Auto-provisioned KB for collection '{collection_name}'",
+            settings={},
+        )
+        logger.info(f"Auto-provisioned KB '{collection_name}' to match QDRANT_COLLECTION_NAME.")
+        return record
+    except KBConflictError:
+        return registry.get(collection_name)

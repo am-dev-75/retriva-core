@@ -96,8 +96,14 @@ def _build_citations(chunks: list[dict]) -> list[Citation]:
         path = chunk.get("source_path", "unknown")
 
         if norm_key not in by_norm_title:
+            # Extract source_url from user_metadata if available (e.g. MediaWiki page URL)
+            user_meta = chunk.get("user_metadata") or {}
+            source_url = user_meta.get("source_url") or user_meta.get("url") or ""
+            source_dict = {"name": label}
+            if source_url:
+                source_dict["url"] = source_url
             by_norm_title[norm_key] = {
-                "source": {"name": label},
+                "source": source_dict,
                 "document": [text],
                 "metadata": [{"source": path, "title": label, "user_metadata": chunk.get("user_metadata")}]
             }

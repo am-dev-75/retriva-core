@@ -41,6 +41,8 @@ def main():
     print(f"  Chat base URL:        {s.chat_base_url}")
     print(f"  Chat temperature:     {s.chat_temperature}")
     print(f"  Chat top_p:           {s.chat_top_p}")
+    if s.chat_reasoning_effort:
+        print(f"  Chat reasoning effort:{s.chat_reasoning_effort}")
     print(f"  Retriever top_k:      {s.retriever_top_k}")
     print(f"  Reranking enabled:    {s.enable_retrieval_reranking}")
     if s.enable_retrieval_reranking:

@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     chat_openai_api_key: str = ""
     chat_temperature: float = 0.0
     chat_top_p: float = 0.9
+    chat_max_tokens: int = 4096
+    # Reasoning effort for models that support it (e.g. OpenAI o-series,
+    # DeepSeek-R1 via OpenRouter).  Values: "low", "medium", "high".
+    # None/empty = not sent (model default).
+    chat_reasoning_effort: Optional[str] = None
     
     # Storage and Persistence
     storage_path: str = str((Path(__file__).resolve().parent.parent.parent / "storage").resolve())

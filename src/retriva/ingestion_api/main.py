@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from retriva.ingestion_api.routers import ingest, ingest_HTML, ingest_image, ingest_text, ingest_mediawiki, ingest_pdf, ingest_markdown, jobs, documents
 from retriva.ingestion_api.routers import v2_documents, v2_jobs, v2_artifacts, v2_discovery, v2_metadata, v2_retrieval, v2_kbs
 from retriva.indexing.qdrant_store import init_collection, get_client
-from retriva.domain.kb import seed_default_kb
+from retriva.domain.kb import seed_default_kb, seed_collection_kb
 from retriva.logger import get_logger
 
 logger = get_logger(__name__)
@@ -37,8 +37,9 @@ async def lifespan(app: FastAPI):
     # clear error if the registry is unavailable at request time.
     try:
         seed_default_kb()
+        seed_collection_kb()
     except Exception as e:
-        logger.error(f"Failed to seed default KB during startup: {e}")
+        logger.error(f"Failed to seed KBs during startup: {e}")
 
     # Load extensions (no-op if RETRIVA_EXTENSIONS is empty)
     from retriva.registry import CapabilityRegistry

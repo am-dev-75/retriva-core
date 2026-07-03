@@ -28,6 +28,19 @@ import retriva.qa.hybrid_selector  # noqa: F401 — registers DefaultHybridSelec
 
 logger = get_logger(__name__)
 
+
+def _chat_extra_kwargs() -> dict:
+    """Build optional kwargs for the chat completions API.
+
+    Currently supports ``reasoning_effort`` for models that accept it
+    (e.g. OpenAI o-series, DeepSeek-R1).  Returns an empty dict when the
+    setting is not configured, so non-reasoning models are unaffected.
+    """
+    effort = settings.chat_reasoning_effort
+    if effort and effort.strip():
+        return {"extra_body": {"reasoning_effort": effort.strip()}}
+    return {}
+
 def _limit_chunks_by_citations(chunks: list[dict], max_citations: int) -> list[dict]:
     """
     Limits the number of unique sources (titles) in the context.
@@ -107,7 +120,9 @@ def ask_question(question: str, retriever_top_k: int = 20, metadata_filters: Opt
         model=settings.chat_model,
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": question}],
         temperature=settings.chat_temperature,
-        top_p=settings.chat_top_p
+        top_p=settings.chat_top_p,
+        max_tokens=settings.chat_max_tokens,
+        **_chat_extra_kwargs(),
     )
     
     if not response.choices:
@@ -142,7 +157,9 @@ def ask_question_streaming(question: str, retriever_top_k: int = 20, metadata_fi
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": question}],
         temperature=settings.chat_temperature,
         top_p=settings.chat_top_p,
+        max_tokens=settings.chat_max_tokens,
         stream=True,
+        **_chat_extra_kwargs(),
     )
 
     def content_generator():
@@ -160,6 +177,8 @@ def ask_question_without_retrieval(question: str) -> str:
         model=settings.chat_model,
         messages=[{"role": "user", "content": question}],
         temperature=settings.chat_temperature,
+        max_tokens=settings.chat_max_tokens,
+        **_chat_extra_kwargs(),
     )
     if not response.choices:
         return "Error: LLM returned an empty response."
@@ -174,7 +193,9 @@ def ask_question_streaming_without_retrieval(question: str):
         model=settings.chat_model,
         messages=[{"role": "user", "content": question}],
         temperature=settings.chat_temperature,
+        max_tokens=settings.chat_max_tokens,
         stream=True,
+        **_chat_extra_kwargs(),
     )
 
     def content_generator():
@@ -220,7 +241,9 @@ async def ask_question_streaming_async(question: str, retriever_top_k: int = 20,
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": question}],
         temperature=settings.chat_temperature,
         top_p=settings.chat_top_p,
+        max_tokens=settings.chat_max_tokens,
         stream=True,
+        **_chat_extra_kwargs(),
     )
 
     async def content_generator():
@@ -238,7 +261,9 @@ async def ask_question_streaming_without_retrieval_async(question: str):
         model=settings.chat_model,
         messages=[{"role": "user", "content": question}],
         temperature=settings.chat_temperature,
+        max_tokens=settings.chat_max_tokens,
         stream=True,
+        **_chat_extra_kwargs(),
     )
     async def content_generator():
         async for chunk in stream:

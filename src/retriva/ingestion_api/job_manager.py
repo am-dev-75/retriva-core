@@ -140,6 +140,12 @@ class JobManager:
             job = self._jobs.get(job_id)
             if job and job.status == JobStatus.RUNNING:
                 job.status = JobStatus.COMPLETED
+                # Move the final stage into stages_completed so the WebUI
+                # doesn't show a stale "current_stage" (e.g. "INDEXING")
+                # after the job has already completed.
+                if job.current_stage and job.current_stage not in job.stages_completed:
+                    job.stages_completed.append(job.current_stage)
+                job.current_stage = None
                 job.updated_at = datetime.now(timezone.utc)
                 logger.info(f"Job {job_id} → completed")
 
