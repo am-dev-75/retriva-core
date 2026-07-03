@@ -62,6 +62,10 @@ Why did I choose the Apache License 2.0? Because this license, combined with cer
 
 * OpenAI-compatible chat API
 * Asynchronous, resilient ingestion (proprietary streaming API)
+  * Celery-backed task queue with Redis broker for distributed, retryable ingestion
+  * Cooperative job cancellation (pending/running jobs can be cancelled via API)
+  * Large-document resilience: PDFs exceeding a configurable page threshold are automatically split into page-range parts and parsed individually, with per-part checkpointing so that a worker crash or OOM-kill resumes from the last completed part instead of restarting from scratch
+  * OCR output caching keyed by content hash, so retries skip the expensive OCRmyPDF step
 * Strict separation of control plane and data plane
 * Nearly-deterministic behavior
   * Given the same user request and identical Knowledge Bases, the system will always produce the same output
@@ -164,6 +168,15 @@ Basically, to use a RAG system you need to
 
 * Firstly, **ingest** information into it.Ingestion is the process of extracting information from documents and storing it in a way that can be searched and retrieved. This documents — which are usually files — are sually, are ingested in separate Knowledge Bases (KB) that users can name and manage. Therefore, you can think of KBs as specific-purpose databases in which you can store whatever information you want.
 * When you want to interact with your KBs, you query them in natural language for retrieving information, elaborating the data they containm and so on. In this regard, think about Retriva as a tailored version of ChatGPT knowing **your** KBs.
+
+### Data Organization
+
+#### First level: collections
+A collection is a uniquely named container that stores and organizes your data (vectors and associated metadata). It acts much like a table in a relational database, providing a unified space to perform semantic similarity searches, exact match filtering, and payload-based queries.
+In a real-world use case, for instance, each company's department could be assigned a different collection.
+
+#### Second level: knowledge bases
+Within a collection, multiple knowledge bases can be created. These are helpful for example to organize data to facilitate data retrieval and manage users' access permission. Knowledge bases are implemented by exploiting Retriva's tagging feature. Specifically, each KB is assigned a different kb_id tag that identifies it univocally.
 
 ### Overview
 
