@@ -41,6 +41,58 @@ def _chat_extra_kwargs() -> dict:
         return {"extra_body": {"reasoning_effort": effort.strip()}}
     return {}
 
+
+def _extract_reasoning(message: Any) -> Optional[str]:
+    """Extract chain-of-thought text from a reasoning-model response message.
+
+    OpenRouter / OpenAI-compatible providers expose reasoning tokens in one
+    of three places depending on the provider:
+      * ``message.reasoning``                       (OpenRouter native)
+      * ``message.reasoning_details[i].text``        (OpenAI reasoning format)
+      * ``message.model_extra["reasoning"]``        (pydantic-model extras)
+
+    Returns the first non-empty reasoning text found, or ``None``.
+    """
+    # Direct attribute (OpenRouter style).
+    reasoning = getattr(message, "reasoning", None)
+    if reasoning and isinstance(reasoning, str) and reasoning.strip():
+        return reasoning
+
+    # Reasoning details array (OpenAI o-series style).
+    details = getattr(message, "reasoning_details", None)
+    if details and isinstance(details, list):
+        for d in details:
+            if isinstance(d, dict):
+                t = d.get("text")
+            else:
+                t = getattr(d, "text", None)
+            if t and isinstance(t, str) and t.strip():
+                return t
+
+    # Pydantic model_extra fallback.
+    extra = getattr(message, "model_extra", None) or {}
+    if isinstance(extra, dict):
+        r = extra.get("reasoning")
+        if r and isinstance(r, str) and r.strip():
+            return r
+
+    return None
+
+
+def _empty_reasoning_warning(prefix: str = "") -> str:
+    """Build a user-facing warning for the empty-content + reasoning case."""
+    hint = (
+        f"The chat model '{settings.chat_model}' returned no visible content "
+        f"(only chain-of-thought reasoning). This typically means "
+        f"CHAT_MAX_TOKENS ({settings.chat_max_tokens}) was consumed entirely "
+        f"by the reasoning trace. Try raising CHAT_MAX_TOKENS, lowering "
+        f"CHAT_REASONING_EFFORT, or switching to a non-reasoning model."
+    )
+    if prefix:
+        return f"{prefix} {hint}"
+    return hint
+
+
 def _limit_chunks_by_citations(chunks: list[dict], max_citations: int) -> list[dict]:
     """
     Limits the number of unique sources (titles) in the context.
@@ -129,9 +181,37 @@ def ask_question(question: str, retriever_top_k: int = 20, metadata_filters: Opt
         logger.error("LLM returned an empty response (no choices).")
         return {"answer": "Error: LLM returned an empty response.", "retrieved_chunks": chunks, "grounding": []}
         
-    answer_text = response.choices[0].message.content
-    if answer_text is None:
-        answer_text = ""
+    message = response.choices[0].message
+    answer_text = message.content
+    if answer_text is None or (isinstance(answer_text, str) and not answer_text.strip()):
+        # Reasoning models (e.g. qwen3.6-27b, DeepSeek-R1) can return
+        # content=None when the entire token budget is consumed by the
+        # chain-of-thought. Surface the reasoning trace so the user sees
+        # something useful and the failure mode is diagnosable.
+        reasoning = _extract_reasoning(message)
+        if reasoning:
+            logger.warning(
+                "LLM returned empty content but %d chars of reasoning; "
+                "falling back to reasoning text.",
+                len(reasoning),
+            )
+            answer_text = (
+                reasoning.strip()
+                + "\n\n---\n"
+                + _empty_reasoning_warning(
+                    "[Note: the model produced only reasoning tokens; "
+                    "the visible answer above is the raw chain-of-thought.]"
+                )
+            )
+        else:
+            answer_text = _empty_reasoning_warning(
+                "[Error: the model returned an empty response.]"
+            )
+            logger.error(
+                "LLM returned empty content and no reasoning trace. "
+                "finish_reason=%s",
+                getattr(response.choices[0], "finish_reason", "unknown"),
+            )
         
     logger.debug(f"LLM Answer: {answer_text}")
     grounding = validate_grounding(answer_text, chunks)
@@ -163,11 +243,41 @@ def ask_question_streaming(question: str, retriever_top_k: int = 20, metadata_fi
     )
 
     def content_generator():
+        produced_content = False
+        reasoning_buf: list[str] = []
         for chunk in stream:
             if chunk.choices and len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta
-                if delta and delta.content:
-                    yield delta.content
+                if delta:
+                    if delta.content:
+                        produced_content = True
+                        yield delta.content
+                    # Reasoning models (qwen3.6, DeepSeek-R1, o-series)
+                    # stream chain-of-thought via delta.reasoning. Buffer it
+                    # so we can fall back if no visible content is produced.
+                    r = getattr(delta, "reasoning", None)
+                    if r:
+                        reasoning_buf.append(r)
+        if not produced_content:
+            reasoning = "".join(reasoning_buf).strip()
+            if reasoning:
+                logger.warning(
+                    "Streaming LLM produced only reasoning tokens (%d chars); "
+                    "falling back to reasoning text.",
+                    len(reasoning),
+                )
+                yield "\n" + reasoning
+                yield "\n\n---\n" + _empty_reasoning_warning(
+                    "[Note: the model produced only reasoning tokens; "
+                    "the visible answer above is the raw chain-of-thought.]"
+                )
+            else:
+                logger.error(
+                    "Streaming LLM produced no content and no reasoning."
+                )
+                yield _empty_reasoning_warning(
+                    "[Error: the model returned an empty response.]"
+                )
     return chunks, content_generator()
 
 
@@ -182,7 +292,33 @@ def ask_question_without_retrieval(question: str) -> str:
     )
     if not response.choices:
         return "Error: LLM returned an empty response."
-    answer_text = response.choices[0].message.content or ""
+    message = response.choices[0].message
+    answer_text = message.content
+    if answer_text is None or (isinstance(answer_text, str) and not answer_text.strip()):
+        reasoning = _extract_reasoning(message)
+        if reasoning:
+            logger.warning(
+                "LLM returned empty content but %d chars of reasoning; "
+                "falling back to reasoning text.",
+                len(reasoning),
+            )
+            answer_text = (
+                reasoning.strip()
+                + "\n\n---\n"
+                + _empty_reasoning_warning(
+                    "[Note: the model produced only reasoning tokens; "
+                    "the visible answer above is the raw chain-of-thought.]"
+                )
+            )
+        else:
+            answer_text = _empty_reasoning_warning(
+                "[Error: the model returned an empty response.]"
+            )
+            logger.error(
+                "LLM returned empty content and no reasoning trace. "
+                "finish_reason=%s",
+                getattr(response.choices[0], "finish_reason", "unknown"),
+            )
     logger.debug(f"LLM Answer: {answer_text}")
     return answer_text
 
@@ -199,11 +335,38 @@ def ask_question_streaming_without_retrieval(question: str):
     )
 
     def content_generator():
+        produced_content = False
+        reasoning_buf: list[str] = []
         for chunk in stream:
             if chunk.choices and len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta
-                if delta and delta.content:
-                    yield delta.content
+                if delta:
+                    if delta.content:
+                        produced_content = True
+                        yield delta.content
+                    r = getattr(delta, "reasoning", None)
+                    if r:
+                        reasoning_buf.append(r)
+        if not produced_content:
+            reasoning = "".join(reasoning_buf).strip()
+            if reasoning:
+                logger.warning(
+                    "Streaming LLM produced only reasoning tokens (%d chars); "
+                    "falling back to reasoning text.",
+                    len(reasoning),
+                )
+                yield "\n" + reasoning
+                yield "\n\n---\n" + _empty_reasoning_warning(
+                    "[Note: the model produced only reasoning tokens; "
+                    "the visible answer above is the raw chain-of-thought.]"
+                )
+            else:
+                logger.error(
+                    "Streaming LLM produced no content and no reasoning."
+                )
+                yield _empty_reasoning_warning(
+                    "[Error: the model returned an empty response.]"
+                )
     return [], content_generator()
 
 async def ask_question_streaming_async(question: str, retriever_top_k: int = 20, metadata_filters: Optional[List[Dict[str, Any]]] = None, metadata_filter_mode: str = "soft", kb_ids: Optional[List[str]] = None):
@@ -247,11 +410,38 @@ async def ask_question_streaming_async(question: str, retriever_top_k: int = 20,
     )
 
     async def content_generator():
+        produced_content = False
+        reasoning_buf: list[str] = []
         async for chunk in stream:
             if chunk.choices and len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta
-                if delta and delta.content:
-                    yield delta.content
+                if delta:
+                    if delta.content:
+                        produced_content = True
+                        yield delta.content
+                    r = getattr(delta, "reasoning", None)
+                    if r:
+                        reasoning_buf.append(r)
+        if not produced_content:
+            reasoning = "".join(reasoning_buf).strip()
+            if reasoning:
+                logger.warning(
+                    "Streaming LLM produced only reasoning tokens (%d chars); "
+                    "falling back to reasoning text.",
+                    len(reasoning),
+                )
+                yield "\n" + reasoning
+                yield "\n\n---\n" + _empty_reasoning_warning(
+                    "[Note: the model produced only reasoning tokens; "
+                    "the visible answer above is the raw chain-of-thought.]"
+                )
+            else:
+                logger.error(
+                    "Streaming LLM produced no content and no reasoning."
+                )
+                yield _empty_reasoning_warning(
+                    "[Error: the model returned an empty response.]"
+                )
     return chunks, content_generator()
 
 
@@ -266,9 +456,36 @@ async def ask_question_streaming_without_retrieval_async(question: str):
         **_chat_extra_kwargs(),
     )
     async def content_generator():
+        produced_content = False
+        reasoning_buf: list[str] = []
         async for chunk in stream:
             if chunk.choices and len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta
-                if delta and delta.content:
-                    yield delta.content
+                if delta:
+                    if delta.content:
+                        produced_content = True
+                        yield delta.content
+                    r = getattr(delta, "reasoning", None)
+                    if r:
+                        reasoning_buf.append(r)
+        if not produced_content:
+            reasoning = "".join(reasoning_buf).strip()
+            if reasoning:
+                logger.warning(
+                    "Streaming LLM produced only reasoning tokens (%d chars); "
+                    "falling back to reasoning text.",
+                    len(reasoning),
+                )
+                yield "\n" + reasoning
+                yield "\n\n---\n" + _empty_reasoning_warning(
+                    "[Note: the model produced only reasoning tokens; "
+                    "the visible answer above is the raw chain-of-thought.]"
+                )
+            else:
+                logger.error(
+                    "Streaming LLM produced no content and no reasoning."
+                )
+                yield _empty_reasoning_warning(
+                    "[Error: the model returned an empty response.]"
+                )
     return [], content_generator()

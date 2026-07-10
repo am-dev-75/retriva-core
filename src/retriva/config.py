@@ -62,6 +62,18 @@ class Settings(BaseSettings):
     # DeepSeek-R1 via OpenRouter).  Values: "low", "medium", "high".
     # None/empty = not sent (model default).
     chat_reasoning_effort: Optional[str] = None
+
+    # System prompt override for the QA answerer.  When set (non-empty), this
+    # string is used as the system prompt template INSTEAD of the built-in
+    # default defined in ``retriva.qa.prompting.build_prompt``.  The template
+    # may reference two placeholders that are substituted at runtime:
+    #   {source_list}  — the numbered list of cited sources
+    #   {context}      — the concatenated <source>…</source> context blocks
+    # If the placeholders are absent the override is used verbatim and the
+    # context/sources are appended automatically.  Leave unset to use the
+    # default Retriva grounded-QA prompt.  This is the primary hook used by
+    # Retriva Pro deployments and per-customer customisations.
+    system_prompt_override: Optional[str] = None
     
     # Storage and Persistence
     storage_path: str = str((Path(__file__).resolve().parent.parent.parent / "storage").resolve())

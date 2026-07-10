@@ -15,6 +15,11 @@
 from pathlib import Path
 from typing import List, Dict
 
+from retriva.config import settings
+from retriva.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 def _citation_label(chunk: Dict) -> str:
     """
@@ -43,20 +48,21 @@ def _citation_label(chunk: Dict) -> str:
     return filename
 
 
-def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:
+def _build_context(retrieved_chunks: List[Dict]) -> tuple[str, str]:
     """
-    Builds the grounded system prompt with Open WebUI-compatible citations.
+    Group retrieved chunks by citation label and return the two pieces that
+    every prompt template needs:
 
-    The LLM is instructed to cite sources using a numeric ``[N]`` marker that
-    matches the numbered source list shown both in the prompt and in the
-    rendered "Sources" list.  The downstream post-processor
-    (``_build_citation_refs`` / the streaming bracket parser) maps those
-    markers to clickable citation chips.  Numbering here is grouped by the
-    same key (the citation label) and order used by ``_build_citations`` so
-    that source ``[N]`` in the body always lines up with ``[N]`` in the list.
+    * ``context_str``  — the ``<source>…</source>`` blocks containing the
+      chunk text, URL and metadata, each tagged with its numeric ``[N]``
+      citation marker.
+    * ``source_list``  — the flat numbered list of source labels, shown to
+      the model as "Available sources:".
+
+    Both are returned so that the default template and any user-supplied
+    override template can consume them with the same ``{context}`` and
+    ``{source_list}`` placeholders.
     """
-    # Group chunks by citation label (filename) to keep the numbering aligned
-    # with the citation list rendered to the user.
     grouped = {}
     for chunk in retrieved_chunks:
         label = _citation_label(chunk)
@@ -71,7 +77,7 @@ def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:
             new_text = chunk.get("text", "")
             if new_text not in grouped[label]["texts"]:
                 grouped[label]["texts"].append(new_text)
-            
+
             # Merge metadata
             meta = chunk.get("user_metadata", {})
             if meta:
@@ -85,14 +91,14 @@ def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:
         citation_number = idx + 1
         url = data["url"]
         combined_text = "\n\n---\n\n".join(data["texts"])
-        
+
         meta_str = ""
         user_metadata = data.get("user_metadata")
         if user_metadata:
             meta_str = "Metadata tags:\n"
             for k, v in user_metadata.items():
                 meta_str += f"- {k}: {v}\n"
-        
+
         # Build context block tagged with the numeric citation marker so the
         # model can reference it directly as [N].
         context_str += (
@@ -105,7 +111,10 @@ def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:
         )
         source_list += f"  - [{citation_number}] {label}\n"
 
-    system_prompt = f"""You are Retriva, a Precision Technical Documentation Assistant.
+    return context_str, source_list
+
+
+_DEFAULT_PROMPT_TEMPLATE = """You are Retriva, a Precision Technical Documentation Assistant.
 Your goal is to provide factually dense, highly nuanced, and strictly grounded answers.
 
 PERSONA & TONE:
@@ -135,9 +144,64 @@ LANGUAGE RULE:
 - Preserve all numeric values, ranges, and units exactly as they appear in the source — never round or convert units during translation.
 
 CONTEXT:
-{context_str}
+{context}
 """
-    return system_prompt
+
+
+def build_prompt(question: str, retrieved_chunks: List[Dict]) -> str:
+    """
+    Builds the grounded system prompt with Open WebUI-compatible citations.
+
+    The LLM is instructed to cite sources using a numeric ``[N]`` marker that
+    matches the numbered source list shown both in the prompt and in the
+    rendered "Sources" list.  The downstream post-processor
+    (``_build_citation_refs`` / the streaming bracket parser) maps those
+    markers to clickable citation chips.  Numbering here is grouped by the
+    same key (the citation label) and order used by ``_build_citations`` so
+    that source ``[N]`` in the body always lines up with ``[N]`` in the list.
+
+    The default template can be overridden end-to-end (without touching code)
+    by setting the ``SYSTEM_PROMPT_OVERRIDE`` environment variable (mapped to
+    ``settings.system_prompt_override``).  An override template may use the
+    ``{source_list}`` and ``{context}`` placeholders to inject the numbered
+    source list and the ``<source>`` context blocks respectively.  If the
+    override does not contain either placeholder, the context and source list
+    are appended to it verbatim so the model still has the evidence it needs.
+    """
+    context_str, source_list = _build_context(retrieved_chunks)
+
+    override = settings.system_prompt_override
+    if override and override.strip():
+        override = override.strip()
+        if "{source_list}" in override or "{context}" in override:
+            # Safe to format directly; missing placeholders are left as-is
+            # by passing them through a dict that supplies defaults.
+            try:
+                system_prompt = override.format(
+                    source_list=source_list,
+                    context=context_str,
+                )
+            except (KeyError, IndexError):
+                # User template referenced an unknown placeholder; fall back
+                # to appending context so we never starve the model.
+                logger.warning(
+                    "system_prompt_override contains unknown placeholders; "
+                    "appending context/source_list verbatim."
+                )
+                system_prompt = (
+                    override
+                    + f"\n\nAvailable sources:\n{source_list}\n\nCONTEXT:\n{context_str}"
+                )
+        else:
+            # No placeholders — append the evidence so the model still sees it.
+            system_prompt = (
+                override
+                + f"\n\nAvailable sources:\n{source_list}\n\nCONTEXT:\n{context_str}"
+            )
+        logger.info("Using SYSTEM_PROMPT_OVERRIDE for system prompt.")
+        return system_prompt
+
+    return _DEFAULT_PROMPT_TEMPLATE.format(source_list=source_list, context=context_str)
 
 
 class DefaultPromptBuilder:
