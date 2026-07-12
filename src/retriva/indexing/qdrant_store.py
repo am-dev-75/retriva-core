@@ -29,7 +29,24 @@ from retriva.profiler import Profiler
 
 logger = get_logger(__name__)
 
-COLLECTION_NAME = settings.qdrant_collection_name
+from contextvars import ContextVar
+
+# Deployment default — used when no X-Retriva-Collection header is present.
+DEFAULT_COLLECTION_NAME = settings.retriva_default_collection
+
+# Per-request override, set by CollectionMiddleware.
+_collection_name_ctx: ContextVar[str] = ContextVar(
+    "collection_name", default=DEFAULT_COLLECTION_NAME
+)
+
+def get_collection_name() -> str:
+    """Return the Qdrant collection for the current request context."""
+    return _collection_name_ctx.get()
+
+def set_collection_name(name: str):
+    """Set the collection for the current context. Returns the reset token."""
+    return _collection_name_ctx.set(name)
+
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds
 
@@ -44,14 +61,14 @@ def init_collection(client: QdrantClient, vector_size: int = None):
     if vector_size is None:
         vector_size = settings.embedding_dimension
         
-    if not client.collection_exists(COLLECTION_NAME):
-        logger.info(f"[{_get_req_id()}] Creating collection '{COLLECTION_NAME}' with dimension {vector_size}...")
+    if not client.collection_exists(get_collection_name()):
+        logger.info(f"[{_get_req_id()}] Creating collection '{get_collection_name()}' with dimension {vector_size}...")
         client.create_collection(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_collection_name(),
             vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
         )
     else:
-        logger.debug(f"[{_get_req_id()}] Collection '{COLLECTION_NAME}' already exists.")
+        logger.debug(f"[{_get_req_id()}] Collection '{get_collection_name()}' already exists.")
 
 def _upsert_with_retry(client: QdrantClient, points: List[PointStruct], batch_num: int):
     """Upsert points to Qdrant with retry logic."""
@@ -59,7 +76,7 @@ def _upsert_with_retry(client: QdrantClient, points: List[PointStruct], batch_nu
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             client.upsert(
-                collection_name=COLLECTION_NAME,
+                collection_name=get_collection_name(),
                 points=points
             )
             return
@@ -120,7 +137,7 @@ def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optio
             for c, embedding in zip(batch_chunks, embeddings)
         ]
         
-        logger.debug(f"[{rid}] Upserting batch {batch_num} ({len(points)} points) to '{COLLECTION_NAME}'...")
+        logger.debug(f"[{rid}] Upserting batch {batch_num} ({len(points)} points) to '{get_collection_name()}'...")
         _upsert_with_retry(client, points, batch_num)
 
         if progress_callback:
@@ -197,7 +214,7 @@ def search_chunks(
     
     if metadata_filter_mode == "hard":
         results = client.query_points(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_collection_name(),
             query=query_vector,
             query_filter=qdrant_filter,
             limit=retriever_top_k,
@@ -225,7 +242,7 @@ def search_chunks(
         # 1. Global Semantic Recall (no filters)
         # Ensures highly relevant documents appear even if they don't match the metadata
         semantic_global = client.query_points(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_collection_name(),
             query=query_vector,
             limit=retriever_top_k,
             with_payload=True
@@ -236,7 +253,7 @@ def search_chunks(
         semantic_metadata = []
         if qdrant_filter:
             meta_res = client.query_points(
-                collection_name=COLLECTION_NAME,
+                collection_name=get_collection_name(),
                 query=query_vector,
                 query_filter=qdrant_filter,
                 limit=retriever_top_k,
@@ -311,7 +328,7 @@ def delete_chunks_by_doc_id(client: QdrantClient, doc_id: str):
     rid = _get_req_id()
     logger.info(f"[{rid}] Deleting chunks for doc_id: {doc_id}")
     client.delete(
-        collection_name=COLLECTION_NAME,
+        collection_name=get_collection_name(),
         points_selector=Filter(
             must=[
                 FieldCondition(
@@ -351,7 +368,7 @@ def delete_chunks_by_kb_id(client: QdrantClient, kb_id: str) -> int:
     observed = 0
     try:
         hits, _ = client.scroll(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_collection_name(),
             scroll_filter=kb_filter,
             limit=10_000,
             with_payload=False,
@@ -367,7 +384,7 @@ def delete_chunks_by_kb_id(client: QdrantClient, kb_id: str) -> int:
         f"[{rid}] kb_delete_points_started: kb_id={kb_id} observed_points={observed}"
     )
     client.delete(
-        collection_name=COLLECTION_NAME,
+        collection_name=get_collection_name(),
         points_selector=kb_filter,
     )
     logger.info(
@@ -398,14 +415,14 @@ def update_payload_by_doc_id(
 
     # Qdrant set_payload is a bulk operation — it patches all matching points
     client.set_payload(
-        collection_name=COLLECTION_NAME,
+        collection_name=get_collection_name(),
         payload=payload_patch,
         points=doc_filter,
     )
 
     # Count updated points for logging (scroll is cheap here)
     hits, _ = client.scroll(
-        collection_name=COLLECTION_NAME,
+        collection_name=get_collection_name(),
         scroll_filter=doc_filter,
         limit=1,
         with_payload=False,
@@ -437,7 +454,7 @@ def delete_chunks_by_metadata(client: QdrantClient, metadata_filter: Dict[str, s
     ]
     
     client.delete(
-        collection_name=COLLECTION_NAME,
+        collection_name=get_collection_name(),
         points_selector=Filter(must=must_conditions),
     )
 
@@ -447,7 +464,7 @@ def list_documents(client: QdrantClient, metadata_filter: Optional[Dict[str, str
     List unique documents from Qdrant matching the given metadata filter and/or doc_id.
     """
     rid = _get_req_id()
-    logger.debug(f"[{rid}] Listing documents in '{COLLECTION_NAME}'...")
+    logger.debug(f"[{rid}] Listing documents in '{get_collection_name()}'...")
     
     must_conditions = []
     if doc_id:
@@ -473,7 +490,7 @@ def list_documents(client: QdrantClient, metadata_filter: Optional[Dict[str, str
     
     while True:
         points, next_offset = client.scroll(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_collection_name(),
             scroll_filter=scroll_filter,
             limit=1000,
             offset=next_offset,
@@ -509,7 +526,7 @@ def count_documents(client: QdrantClient, metadata_filter: Optional[Dict[str, st
     Count unique documents in Qdrant matching the given metadata filter.
     """
     rid = _get_req_id()
-    logger.debug(f"[{rid}] Counting documents in '{COLLECTION_NAME}'...")
+    logger.debug(f"[{rid}] Counting documents in '{get_collection_name()}'...")
     return len(list_documents(client, metadata_filter))
 
 
@@ -518,7 +535,7 @@ def get_metadata_schema(client: QdrantClient) -> List[str]:
     Get all unique metadata keys present across all documents.
     """
     rid = _get_req_id()
-    logger.debug(f"[{rid}] Getting metadata schema in '{COLLECTION_NAME}'...")
+    logger.debug(f"[{rid}] Getting metadata schema in '{get_collection_name()}'...")
     docs = list_documents(client)
     keys = set()
     for doc in docs:
@@ -533,7 +550,7 @@ def get_metadata_values(client: QdrantClient, key: str) -> List[Dict[str, Any]]:
     """
     from collections import Counter
     rid = _get_req_id()
-    logger.debug(f"[{rid}] Getting metadata values for key '{key}' in '{COLLECTION_NAME}'...")
+    logger.debug(f"[{rid}] Getting metadata values for key '{key}' in '{get_collection_name()}'...")
     docs = list_documents(client)
     counts = Counter()
     for doc in docs:
@@ -619,7 +636,7 @@ def search_documents(
             next_offset = None
             while True:
                 points, next_offset = client.scroll(
-                    collection_name=COLLECTION_NAME,
+                    collection_name=get_collection_name(),
                     scroll_filter=discovery_filter,
                     limit=100,
                     offset=next_offset,
@@ -737,7 +754,7 @@ def get_detailed_metadata_schema(client: QdrantClient) -> List[Dict[str, Any]]:
     Get detailed metadata schema including field types and supported operators.
     """
     rid = _get_req_id()
-    logger.debug(f"[{rid}] Getting detailed metadata schema in '{COLLECTION_NAME}'...")
+    logger.debug(f"[{rid}] Getting detailed metadata schema in '{get_collection_name()}'...")
     fields = [
         {"field": "chunk_type", "type": "string", "operators": ["eq", "exists"]},
         {"field": "language", "type": "string", "operators": ["eq", "exists"]},

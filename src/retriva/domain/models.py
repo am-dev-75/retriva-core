@@ -72,6 +72,11 @@ class ParsedDocument(BaseModel):
     source_paths: Optional[List[str]] = None
 
 
+def _default_collection_name() -> str:
+    from retriva.indexing.qdrant_store import get_collection_name
+    return get_collection_name()
+
+
 class DocRecord(BaseModel):
     """Per-KB document catalog entry — the source of truth for deduplication.
 
@@ -80,7 +85,7 @@ class DocRecord(BaseModel):
 
     doc_id: str
     kb_id: str
-    collection_name: str = "retriva_chunks"
+    collection_name: str = Field(default_factory=_default_collection_name)
     content_hash: str
     content_hash_algorithm: str = "sha256"
     content_size: int

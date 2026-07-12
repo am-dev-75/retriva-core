@@ -94,6 +94,7 @@ class KBResponse(BaseModel):
     """Public KB representation (one of the entries in ``KBListResponse``)."""
 
     kb_id: str
+    collection_name: str
     name: str
     description: Optional[str] = None
     created_at: str
@@ -105,6 +106,7 @@ class KBResponse(BaseModel):
     def from_record(cls, rec: KBRecord, *, document_count: int = 0) -> "KBResponse":
         return cls(
             kb_id=rec.kb_id,
+            collection_name=rec.collection_name,
             name=rec.name,
             description=rec.description,
             created_at=rec.created_at,

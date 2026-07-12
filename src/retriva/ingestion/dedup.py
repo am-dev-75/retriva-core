@@ -73,16 +73,14 @@ class DeduplicationStore:
 
     _lock = threading.Lock()
 
-    def __init__(self, catalog_path: Optional[str] = None):
+    def __init__(self, catalog_path: Optional[str] = None, collection_name: Optional[str] = None):
         if catalog_path is None:
             from retriva.config import settings
-            # Use the canonical, absolute storage location. The setting is
-            # named ``storage_path`` (an absolute path); the previous lookup
-            # of the non-existent ``storage_dir`` fell back to a relative
-            # "storage" dir resolved against the process CWD, which is
-            # fragile (works only when CWD happens to be the app root).
+            from retriva.indexing.qdrant_store import get_collection_name
+            
+            col = collection_name or get_collection_name()
             storage_dir = getattr(settings, "storage_path", None) or "storage"
-            catalog_path = os.path.join(storage_dir, "dedup_catalog.json")
+            catalog_path = os.path.join(storage_dir, "collections", col, "dedup_catalog.json")
 
         self._path = Path(catalog_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,15 +106,17 @@ class DeduplicationStore:
 
     # -- Public API ---------------------------------------------------------
 
-    def get_by_hash(self, kb_id: str, content_hash: str, collection_name: str = "retriva_chunks") -> Optional[DocRecord]:
+    def get_by_hash(self, kb_id: str, content_hash: str, collection_name: Optional[str] = None) -> Optional[DocRecord]:
         """Look up a document by (kb_id, content_hash, collection_name). Returns None if not found."""
+        from retriva.indexing.qdrant_store import get_collection_name
+        col = collection_name or get_collection_name()
         with self._lock:
             data = self._read_raw()
             for rec in data.get("records", []):
                 rec_collection = rec.get("collection_name", "retriva_chunks")
                 if (rec.get("kb_id") == kb_id
                         and rec.get("content_hash") == content_hash
-                        and rec_collection == collection_name):
+                        and rec_collection == col):
                     return DocRecord(**rec)
         return None
 

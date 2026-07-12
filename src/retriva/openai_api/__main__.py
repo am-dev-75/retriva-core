@@ -48,7 +48,7 @@ def main():
     if s.enable_retrieval_reranking:
         print(f"  Rerank model:         {s.retrieval_rerank_model}")
     print(f"  Qdrant URL:           {s.qdrant_url}")
-    print(f"  Qdrant Collection:    {s.qdrant_collection_name}")
+    print(f"  Qdrant Collection:    {s.retriva_default_collection}")
     print(f"  Embedding model:      {s.embedding_model}")
     print(f"  Embedding dimension:  {s.embedding_dimension}")
     print(f"  Storage path:         {s.storage_path}")

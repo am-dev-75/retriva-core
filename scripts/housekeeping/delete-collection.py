@@ -46,7 +46,7 @@ def main():
     print(f"Connecting to Qdrant at {settings.qdrant_url}...")
     client = QdrantClient(url=settings.qdrant_url)
     
-    collection_name = settings.qdrant_collection_name
+    collection_name = settings.retriva_default_collection
     print(f"Deleting Qdrant collection: {collection_name}")
     try:
         client.delete_collection(collection_name=collection_name)

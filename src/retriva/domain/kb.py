@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from retriva.infrastructure.registry_db import RegistryDB, get_registry_db
+from retriva.indexing.qdrant_store import get_collection_name
 from retriva.logger import get_logger
 
 logger = get_logger(__name__)
@@ -126,6 +127,7 @@ class KBRecord(BaseModel):
     """
 
     kb_id: str
+    collection_name: str = Field(default_factory=get_collection_name)
     name: str
     description: Optional[str] = None
     created_at: str
@@ -138,6 +140,7 @@ class KBRecord(BaseModel):
     def from_row(cls, row: sqlite3.Row) -> "KBRecord":
         return cls(
             kb_id=row["kb_id"],
+            collection_name=row["collection_name"],
             name=row["name"],
             description=row["description"],
             created_at=row["created_at"],
@@ -211,31 +214,34 @@ class KBRegistry:
 
     # --------------------------------------------------------------------- list
 
-    def list(self) -> List[KBRecord]:
+    def list(self, collection_name: Optional[str] = None) -> List[KBRecord]:
+        collection = collection_name or get_collection_name()
         with self._db.connect() as conn:
             rows = conn.execute(
-                "SELECT kb_id, name, description, created_at, updated_at, settings_json "
-                "FROM knowledge_bases ORDER BY kb_id ASC"
+                "SELECT kb_id, collection_name, name, description, created_at, updated_at, settings_json "
+                "FROM knowledge_bases WHERE collection_name = ? ORDER BY kb_id ASC",
+                (collection,)
             ).fetchall()
         return [KBRecord.from_row(r) for r in rows]
 
     # ---------------------------------------------------------------------- get
 
-    def get(self, kb_id: str) -> KBRecord:
+    def get(self, kb_id: str, collection_name: Optional[str] = None) -> KBRecord:
         kb_id = _validate_kb_id(kb_id)
+        collection = collection_name or get_collection_name()
         with self._db.connect() as conn:
             row = conn.execute(
-                "SELECT kb_id, name, description, created_at, updated_at, settings_json "
-                "FROM knowledge_bases WHERE kb_id = ?",
-                (kb_id,),
+                "SELECT kb_id, collection_name, name, description, created_at, updated_at, settings_json "
+                "FROM knowledge_bases WHERE kb_id = ? AND collection_name = ?",
+                (kb_id, collection),
             ).fetchone()
         if row is None:
-            raise KBNotFoundError(f"KB not found: {kb_id}")
+            raise KBNotFoundError(f"KB not found: {kb_id} (in collection: {collection})")
         return KBRecord.from_row(row)
 
-    def exists(self, kb_id: str) -> bool:
+    def exists(self, kb_id: str, collection_name: Optional[str] = None) -> bool:
         try:
-            self.get(kb_id)
+            self.get(kb_id, collection_name)
             return True
         except KBNotFoundError:
             return False
@@ -249,6 +255,7 @@ class KBRegistry:
         kb_id: Optional[str] = None,
         description: Optional[str] = None,
         settings: Optional[Dict[str, Any]] = None,
+        collection_name: Optional[str] = None,
     ) -> KBRecord:
         """Create a new KB row.
 
@@ -259,6 +266,7 @@ class KBRegistry:
         name = _validate_name(name)
         description = _validate_description(description)
         settings = _validate_settings(settings)
+        collection = collection_name or get_collection_name()
 
         if kb_id is None:
             kb_id = slugify(name)
@@ -268,6 +276,7 @@ class KBRegistry:
         now = _utcnow_iso()
         record = KBRecord(
             kb_id=kb_id,
+            collection_name=collection,
             name=name,
             description=description,
             created_at=now,
@@ -279,10 +288,11 @@ class KBRegistry:
             with self._db.write() as conn:
                 conn.execute(
                     "INSERT INTO knowledge_bases "
-                    "(kb_id, name, description, created_at, updated_at, settings_json) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "(kb_id, collection_name, name, description, created_at, updated_at, settings_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         record.kb_id,
+                        record.collection_name,
                         record.name,
                         record.description,
                         record.created_at,
@@ -292,9 +302,9 @@ class KBRegistry:
                 )
         except sqlite3.IntegrityError as exc:
             # Primary key collision is the only realistic IntegrityError here.
-            raise KBConflictError(f"KB already exists: {kb_id}") from exc
+            raise KBConflictError(f"KB already exists: {kb_id} (in collection: {collection})") from exc
 
-        logger.info(f"KB created: kb_id={kb_id} name={name!r}")
+        logger.info(f"KB created: kb_id={kb_id} collection={collection} name={name!r}")
         return record
 
     # ------------------------------------------------------------------- update
@@ -306,6 +316,7 @@ class KBRegistry:
         name: Optional[str] = None,
         description: Optional[str] = None,
         settings: Optional[Dict[str, Any]] = None,
+        collection_name: Optional[str] = None,
     ) -> KBRecord:
         """Update mutable fields. ``kb_id`` is immutable.
 
@@ -314,9 +325,10 @@ class KBRegistry:
         ``description=None`` is a no-op.
         """
         kb_id = _validate_kb_id(kb_id)
+        collection = collection_name or get_collection_name()
 
         # Fetch first to give a precise 404 before doing any write.
-        current = self.get(kb_id)
+        current = self.get(kb_id, collection_name=collection)
 
         new_name = current.name if name is None else _validate_name(name)
         new_description = (
@@ -331,19 +343,21 @@ class KBRegistry:
             conn.execute(
                 "UPDATE knowledge_bases "
                 "SET name = ?, description = ?, settings_json = ?, updated_at = ? "
-                "WHERE kb_id = ?",
+                "WHERE kb_id = ? AND collection_name = ?",
                 (
                     new_name,
                     new_description,
                     json.dumps(new_settings),
                     now,
                     kb_id,
+                    collection,
                 ),
             )
 
-        logger.info(f"KB updated: kb_id={kb_id}")
+        logger.info(f"KB updated: kb_id={kb_id} collection={collection}")
         return KBRecord(
             kb_id=kb_id,
+            collection_name=collection,
             name=new_name,
             description=new_description,
             created_at=current.created_at,
@@ -353,7 +367,7 @@ class KBRegistry:
 
     # ------------------------------------------------------------------- delete
 
-    def delete(self, kb_id: str) -> None:
+    def delete(self, kb_id: str, collection_name: Optional[str] = None) -> None:
         """Delete a registry row.
 
         Phase 1 deletes the registry row only. The Qdrant-points and dedup
@@ -364,30 +378,33 @@ class KBRegistry:
         if kb_id == DEFAULT_KB_ID:
             raise KBImmutableError("The 'default' KB cannot be deleted.")
 
+        collection = collection_name or get_collection_name()
         with self._db.write() as conn:
             cursor = conn.execute(
-                "DELETE FROM knowledge_bases WHERE kb_id = ?", (kb_id,)
+                "DELETE FROM knowledge_bases WHERE kb_id = ? AND collection_name = ?", 
+                (kb_id, collection)
             )
             if cursor.rowcount == 0:
-                raise KBNotFoundError(f"KB not found: {kb_id}")
+                raise KBNotFoundError(f"KB not found: {kb_id} (in collection: {collection})")
 
-        logger.info(f"KB deleted: kb_id={kb_id}")
+        logger.info(f"KB deleted: kb_id={kb_id} collection={collection}")
 
 
 # ---------------------------------------------------------------------------
 # Seeding
 # ---------------------------------------------------------------------------
 
-def seed_default_kb(registry: Optional[KBRegistry] = None) -> KBRecord:
-    """Ensure the ``default`` KB exists.
+def seed_default_kb(registry: Optional[KBRegistry] = None, collection_name: Optional[str] = None) -> KBRecord:
+    """Ensure the ``default`` KB exists in the given collection.
 
     Idempotent. Safe to call at every startup. Returns the (existing or newly
     created) record.
     """
     registry = registry or KBRegistry()
+    collection = collection_name or get_collection_name()
     try:
-        record = registry.get(DEFAULT_KB_ID)
-        logger.debug(f"Default KB already present: kb_id={record.kb_id}")
+        record = registry.get(DEFAULT_KB_ID, collection_name=collection)
+        logger.debug(f"Default KB already present: kb_id={record.kb_id} in {collection}")
         return record
     except KBNotFoundError:
         pass
@@ -398,29 +415,30 @@ def seed_default_kb(registry: Optional[KBRegistry] = None) -> KBRecord:
             name="default",
             description="Default knowledge base",
             settings={},
+            collection_name=collection,
         )
-        logger.info("Default KB seeded.")
+        logger.info(f"Default KB seeded in {collection}.")
         return record
     except KBConflictError:
         # Race with another worker; re-read.
-        return registry.get(DEFAULT_KB_ID)
+        return registry.get(DEFAULT_KB_ID, collection_name=collection)
 
 
 def seed_collection_kb(registry: Optional[KBRegistry] = None) -> Optional[KBRecord]:
-    """Ensure the KB matching settings.qdrant_collection_name exists.
+    """Ensure the KB matching settings.retriva_default_collection exists.
 
-    Auto-provisions the KB if a custom QDRANT_COLLECTION_NAME was configured,
+    Auto-provisions the KB if a custom RETRIVA_DEFAULT_COLLECTION was configured,
     preventing 404s on fresh deployments.
     """
     from retriva.config import settings
 
-    collection_name = settings.qdrant_collection_name
+    collection_name = settings.retriva_default_collection
     if collection_name == DEFAULT_KB_ID:
         return None
 
     registry = registry or KBRegistry()
     try:
-        record = registry.get(collection_name)
+        record = registry.get(collection_name, collection_name=collection_name)
         return record
     except KBNotFoundError:
         pass
@@ -431,8 +449,9 @@ def seed_collection_kb(registry: Optional[KBRegistry] = None) -> Optional[KBReco
             name=collection_name,
             description=f"Auto-provisioned KB for collection '{collection_name}'",
             settings={},
+            collection_name=collection_name,
         )
-        logger.info(f"Auto-provisioned KB '{collection_name}' to match QDRANT_COLLECTION_NAME.")
+        logger.info(f"Auto-provisioned KB '{collection_name}' to match RETRIVA_DEFAULT_COLLECTION.")
         return record
     except KBConflictError:
-        return registry.get(collection_name)
+        return registry.get(collection_name, collection_name=collection_name)

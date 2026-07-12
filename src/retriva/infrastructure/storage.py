@@ -37,8 +37,13 @@ class ArtifactStorageProvider(Protocol):
 class LocalStorageProvider:
     """Default OSS implementation using local filesystem."""
     
-    def __init__(self, base_path: str = None):
-        self.base_path = Path(base_path or settings.artifacts_path)
+    def __init__(self, base_path: str = None, collection_name: Optional[str] = None):
+        if base_path is None:
+            from retriva.indexing.qdrant_store import get_collection_name
+            col = collection_name or get_collection_name()
+            self.base_path = Path(settings.artifacts_path).parent / "collections" / col / "artifacts"
+        else:
+            self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     def store(self, artifact_id: str, content: bytes, extension: str) -> str:

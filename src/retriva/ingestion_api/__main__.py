@@ -28,7 +28,7 @@ def main():
     s = config.settings
     print("Active settings:")
     print(f"  Qdrant URL:           {s.qdrant_url}")
-    print(f"  Qdrant Collection:    {s.qdrant_collection_name}")
+    print(f"  Qdrant Collection:    {s.retriva_default_collection}")
     print(f"  Storage path:         {s.storage_path}")
     print(f"  Primary parser:       {s.v2_primary_parser}")
     print(f"  Embedding model:      {s.embedding_model}")

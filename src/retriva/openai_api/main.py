@@ -52,6 +52,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from retriva.middleware.collection import CollectionMiddleware
+app.add_middleware(CollectionMiddleware)
+
 @app.get("/")
 async def root():
     """Returns basic API information."""

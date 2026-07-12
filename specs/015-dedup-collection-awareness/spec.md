@@ -2,13 +2,13 @@
 
 ## Goal
 Make the DeduplicationStore aware of the active Qdrant collection, so that
-switching `QDRANT_COLLECTION_NAME` does not silently prevent re-ingestion of
+switching `RETRIVA_DEFAULT_COLLECTION` does not silently prevent re-ingestion of
 documents whose chunks reside in a different collection.
 
 ## Problem Statement
 The current `DeduplicationStore` keys records on `(kb_id, content_hash)`.
 It does not track which Qdrant collection was used when the document was
-originally indexed. If the operator changes `QDRANT_COLLECTION_NAME`
+originally indexed. If the operator changes `RETRIVA_DEFAULT_COLLECTION`
 (e.g. for testing or multi-tenant deployments), the dedup store still finds
 a matching record from the old collection and returns `already_exists`,
 even though the chunks do not exist in the new collection.
@@ -49,6 +49,6 @@ When a document is re-ingested due to a collection change, the log shall clearly
 indicate the reason (e.g. `collection_changed_reingestion`).
 
 ## Acceptance summary
-The feature is accepted when changing `QDRANT_COLLECTION_NAME` and re-uploading
+The feature is accepted when changing `RETRIVA_DEFAULT_COLLECTION` and re-uploading
 a previously ingested document results in the full pipeline executing and chunks
 appearing in the new collection.

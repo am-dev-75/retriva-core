@@ -52,13 +52,21 @@ logger = get_logger(__name__)
 
 KNOWLEDGE_BASES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS knowledge_bases (
-    kb_id         TEXT PRIMARY KEY NOT NULL,
-    name          TEXT NOT NULL,
-    description   TEXT,
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL,
-    settings_json TEXT NOT NULL DEFAULT '{}'
+    kb_id           TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    description     TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    settings_json   TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (kb_id, collection_name)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_kb_collection_name
+    ON knowledge_bases(collection_name, name);
+
+CREATE INDEX IF NOT EXISTS idx_kb_collection
+    ON knowledge_bases(collection_name);
 """
 
 
@@ -138,10 +146,63 @@ class RegistryDB:
     # ----------------------------------------------------------- Schema mgmt
 
     def _initialize_schema(self) -> None:
-        """Create tables if they do not exist. Idempotent."""
-        with self.connect() as conn:
+        """Create tables if they do not exist. Migrates old schema if needed."""
+        # Use a raw connection — NOT self.connect() — because connect()
+        # runs KNOWLEDGE_BASES_SCHEMA (including CREATE INDEX on
+        # collection_name) which fails on the old schema before the
+        # migration below can run.
+        conn = sqlite3.connect(
+            self._path,
+            isolation_level=None,
+            timeout=30.0,
+        )
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            conn.execute("PRAGMA foreign_keys=ON;")
+
+            # Check if old schema exists (missing collection_name column)
+            try:
+                columns_cursor = conn.execute("PRAGMA table_info(knowledge_bases);")
+                columns = [row["name"] for row in columns_cursor.fetchall()]
+
+                if columns and "collection_name" not in columns:
+                    logger.info("Migrating KB registry to multi-collection schema...")
+                    from retriva.indexing.qdrant_store import DEFAULT_COLLECTION_NAME
+
+                    conn.execute("BEGIN IMMEDIATE;")
+                    try:
+                        # 1. Rename old table
+                        conn.execute("ALTER TABLE knowledge_bases RENAME TO knowledge_bases_old;")
+
+                        # 2. Create new table with collection_name column
+                        conn.executescript(KNOWLEDGE_BASES_SCHEMA)
+
+                        # 3. Copy data, assigning default collection
+                        conn.execute(f"""
+                            INSERT INTO knowledge_bases
+                            (kb_id, collection_name, name, description, created_at, updated_at, settings_json)
+                            SELECT kb_id, '{DEFAULT_COLLECTION_NAME}', name, description, created_at, updated_at, settings_json
+                            FROM knowledge_bases_old;
+                        """)
+
+                        # 4. Drop old table
+                        conn.execute("DROP TABLE knowledge_bases_old;")
+                        conn.execute("COMMIT;")
+                        logger.info("KB registry migration complete.")
+                    except Exception as e:
+                        conn.execute("ROLLBACK;")
+                        logger.error(f"Failed to migrate KB registry: {e}")
+                        raise
+            except Exception as e:
+                # If there's an error checking the schema (like table doesn't exist), just proceed.
+                pass
+
             conn.executescript(KNOWLEDGE_BASES_SCHEMA)
             logger.debug(f"Registry DB schema ensured at {self._path}")
+        finally:
+            conn.close()
 
 
 # A module-level singleton is convenient but not enforced. Callers that need

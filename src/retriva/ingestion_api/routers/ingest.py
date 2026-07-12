@@ -15,7 +15,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, status
 from retriva.ingestion_api.schemas import ChunkIngestRequest, IngestResponse
-from retriva.indexing.qdrant_store import get_client, upsert_chunks, init_collection, COLLECTION_NAME
+from retriva.indexing.qdrant_store import get_client, upsert_chunks, init_collection, get_collection_name
 from retriva.ingestion_api.job_manager import JobManager, CancellationError
 from retriva.logger import get_logger
 
@@ -64,8 +64,8 @@ async def clear_collection():
     logger.debug("Clearing collection...")
     client = get_client()
     try:
-        if client.collection_exists(COLLECTION_NAME):
-            client.delete_collection(COLLECTION_NAME)
+        if client.collection_exists(get_collection_name()):
+            client.delete_collection(get_collection_name())
         init_collection(client)
         return IngestResponse(status="ok", message="Collection cleared and re-initialized")
     except Exception as e:

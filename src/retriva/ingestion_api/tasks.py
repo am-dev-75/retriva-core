@@ -164,6 +164,7 @@ def _register_tasks(app):
         content_size: Optional[int] = None,
         ingestion_status: str = "completed",
         created_at: Optional[str] = None,
+        collection_name: Optional[str] = None,
     ):
         """Celery task that runs the full v2 ingestion pipeline.
 
@@ -171,8 +172,12 @@ def _register_tasks(app):
         process_document_v2, ...)``.
         """
         from retriva.ingestion_api.routers.v2_documents import process_document_v2
+        from retriva.indexing.qdrant_store import set_collection_name, _collection_name_ctx, DEFAULT_COLLECTION_NAME
 
-        logger.info(f"Celery task started: job_id={job_id}, source={source_uri}")
+        logger.info(f"Celery task started: job_id={job_id}, source={source_uri}, collection={collection_name}")
+        
+        col = collection_name or DEFAULT_COLLECTION_NAME
+        token = set_collection_name(col)
 
         # Track OOM-kill re-queues: Celery's task_reject_on_worker_lost=True
         # re-delivers the task after a SIGKILL, but doesn't increment the
@@ -247,6 +252,8 @@ def _register_tasks(app):
             })
             # Retry with exponential backoff for transient failures
             raise self.retry(exc=exc, countdown=2 ** self.request.retries)
+        finally:
+            _collection_name_ctx.reset(token)
 
     @app.task(
         name="retriva.ingestion_api.tasks.process_mediawiki_task",
@@ -260,12 +267,17 @@ def _register_tasks(app):
         staged_dir: str,
         user_metadata: Optional[Dict[str, str]],
         kb_id: str,
+        collection_name: Optional[str] = None,
     ):
         """Celery task for MediaWiki export ingestion."""
         from retriva.ingestion.mediawiki_v2_parser import process_mediawiki_export
         from retriva.ingestion_api.job_manager import JobManager
+        from retriva.indexing.qdrant_store import set_collection_name, _collection_name_ctx, DEFAULT_COLLECTION_NAME
 
-        logger.info(f"Celery MediaWiki task started: job_id={job_id}, dir={staged_dir}")
+        logger.info(f"Celery MediaWiki task started: job_id={job_id}, dir={staged_dir}, collection={collection_name}")
+        
+        col = collection_name or DEFAULT_COLLECTION_NAME
+        token = set_collection_name(col)
 
         def cancel_check():
             return _is_cancel_requested(job_id)
@@ -301,6 +313,8 @@ def _register_tasks(app):
                 "error": str(exc),
             })
             raise self.retry(exc=exc, countdown=2 ** self.request.retries)
+        finally:
+            _collection_name_ctx.reset(token)
 
 
 # ── Public dispatch functions (called from the API) ──────────────────────

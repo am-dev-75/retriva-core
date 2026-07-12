@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     canonical_base_url: str = "https://wiki.dave.eu"
     
     qdrant_url: str = "http://192.168.1.64:6333"
-    qdrant_collection_name: str = "retriva_chunks"
+    retriva_default_collection: str = "retriva_chunks"
     local_openai_api_key: str = "sk-mock-key"
     openrouter_openai_api_key: str = ""
     

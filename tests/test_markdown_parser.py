@@ -14,7 +14,7 @@
 
 import pytest
 from pathlib import Path
-from src.retriva.ingestion.markdown_parser import split_by_headings, derive_title, parse_markdown
+from retriva.ingestion.markdown_parser import split_by_headings, derive_title, parse_markdown
 
 def test_split_by_headings_basic():
     text = """# Heading 1

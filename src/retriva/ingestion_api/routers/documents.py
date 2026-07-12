@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from fastapi import APIRouter, status, Response
-from retriva.indexing.qdrant_store import get_client, delete_chunks_by_doc_id, delete_chunks_by_metadata, COLLECTION_NAME
+from retriva.indexing.qdrant_store import get_client, delete_chunks_by_doc_id, delete_chunks_by_metadata, get_collection_name
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from retriva.logger import get_logger
 from retriva.ingestion_api.schemas import DeleteMetadataRequest
@@ -37,7 +37,7 @@ async def delete_document(doc_id: str):
         # Check if any chunks exist for this doc_id
         # We use scroll with limit 1 as a lightweight existence check
         hits, _ = client.scroll(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_collection_name(),
             scroll_filter=Filter(
                 must=[
                     FieldCondition(

@@ -56,7 +56,7 @@ class TestQdrantDeleteByKbId:
     def test_issues_filtered_delete_with_kb_id_payload_match(self):
         from retriva.indexing.qdrant_store import (
             delete_chunks_by_kb_id,
-            COLLECTION_NAME,
+            get_collection_name,
         )
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -71,7 +71,7 @@ class TestQdrantDeleteByKbId:
         # Exactly one delete call against the canonical collection.
         client.delete.assert_called_once()
         kwargs = client.delete.call_args.kwargs
-        assert kwargs["collection_name"] == COLLECTION_NAME
+        assert kwargs["collection_name"] == get_collection_name()
 
         # The selector must be a Filter(must=[FieldCondition(key='kb_id', ...)])
         selector = kwargs["points_selector"]

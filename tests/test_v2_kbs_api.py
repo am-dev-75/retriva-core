@@ -52,7 +52,8 @@ def mock_qdrant_startup():
     """Stub Qdrant during FastAPI startup. KB seeding still runs against
     the session-scoped temp registry (see tests/conftest.py)."""
     with patch("retriva.ingestion_api.main.get_client"), \
-         patch("retriva.ingestion_api.main.init_collection"):
+         patch("retriva.ingestion_api.main.init_collection"), \
+         patch("retriva.ingestion_api.routers.v2_kbs.delete_chunks_by_kb_id", return_value=0):
         yield
 
 

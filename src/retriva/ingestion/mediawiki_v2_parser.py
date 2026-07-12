@@ -38,7 +38,7 @@ from typing import Callable, Dict, List, Optional, Set
 
 from retriva.domain.models import DocRecord, ImageContext, ParsedDocument
 from retriva.indexing.qdrant_store import (
-    COLLECTION_NAME,
+    get_collection_name,
     get_client,
     update_payload_by_doc_id,
     upsert_chunks,
@@ -138,7 +138,7 @@ def _process_page(
     source_path_str = f"{xml_path}#{page_id}"
 
     existing = dedup_store.get_by_hash(
-        kb_id, page_hash, collection_name=COLLECTION_NAME
+        kb_id, page_hash, collection_name=get_collection_name()
     )
 
     if existing is not None:
@@ -181,7 +181,7 @@ def _process_page(
     record = DocRecord(
         doc_id=doc_id,
         kb_id=kb_id,
-        collection_name=COLLECTION_NAME,
+        collection_name=get_collection_name(),
         content_hash=page_hash,
         content_size=len(plaintext.encode("utf-8")),
         mime_type="application/mediawiki-export+xml",

@@ -42,7 +42,7 @@ from retriva.config import settings
 from retriva.domain.models import CanonicalRecord, ParsedDocument
 from retriva.indexing.qdrant_store import (
     get_client, upsert_chunks, delete_chunks_by_doc_id,
-    delete_chunks_by_metadata, update_payload_by_doc_id, COLLECTION_NAME,
+    delete_chunks_by_metadata, update_payload_by_doc_id, get_collection_name,
     list_documents as list_documents_store,
     count_documents as count_documents_store,
 )
@@ -1098,7 +1098,7 @@ async def upload_document_v2(
 
     # -- 3. Dedup lookup ----------------------------------------------------
     dedup_store = DeduplicationStore()
-    existing = dedup_store.get_by_hash(kb_id, content_hash, collection_name=COLLECTION_NAME)
+    existing = dedup_store.get_by_hash(kb_id, content_hash, collection_name=get_collection_name())
 
     # Treat records from interrupted ingestions as stale: a "pending" record
     # with zero chunks means the worker never completed (crash, OOM, restart).
@@ -1204,7 +1204,7 @@ async def upload_document_v2(
     record = DocRecord(
         doc_id=doc_id,
         kb_id=kb_id,
-        collection_name=COLLECTION_NAME,
+        collection_name=get_collection_name(),
         content_hash=content_hash,
         content_size=content_size,
         mime_type=content_type,
@@ -1285,7 +1285,7 @@ async def delete_document_v2(doc_id: str):
     try:
         # Check if any chunks exist for this doc_id
         hits, _ = client.scroll(
-            collection_name=COLLECTION_NAME,
+            collection_name=get_collection_name(),
             scroll_filter=Filter(
                 must=[
                     FieldCondition(
