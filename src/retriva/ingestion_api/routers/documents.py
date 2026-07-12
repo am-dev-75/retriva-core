@@ -57,6 +57,16 @@ async def delete_document(doc_id: str):
 
         delete_chunks_by_doc_id(client, doc_id)
         logger.info(f"retriva_deleted doc_id={doc_id}")
+
+        # Graph cleanup (non-fatal if graph is disabled or fails)
+        try:
+            from retriva.config import settings
+            if settings.graph_enabled:
+                from retriva.graph.graph_indexer import GraphIndexer
+                GraphIndexer().delete_document(doc_id)
+        except Exception as graph_err:
+            logger.warning(f"Graph cleanup failed for doc_id={doc_id}: {graph_err}")
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
         
     except Exception as e:

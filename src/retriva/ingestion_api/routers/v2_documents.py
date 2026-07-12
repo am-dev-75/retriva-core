@@ -682,6 +682,51 @@ def process_document_v2(
         manager.set_stage_detail(job_id, f"indexed {len(chunks)} chunks", 100)
         _sync_state()
 
+        # ── GRAPH_INDEXING (optional) ──────────────────────────────────
+        # When settings.graph_enabled is True, extract entities and
+        # assertions from the document's chunks and write them to the
+        # graph store.  Failures are isolated: they do NOT fail the
+        # ingestion job or affect the vector index.
+        if settings.graph_enabled:
+            manager.advance_stage(job_id, JobStage.GRAPH_INDEXING.value)
+            _sync_state()
+            try:
+                from retriva.graph.graph_indexer import GraphIndexer
+                graph_indexer = GraphIndexer()
+                # Build chunk dicts (as stored in Qdrant payloads) for extraction
+                chunk_dicts = []
+                for c in chunks:
+                    chunk_dicts.append({
+                        "chunk_id": c.metadata.chunk_id,
+                        "text": c.text,
+                        "doc_id": doc_id,
+                        "kb_id": kb_id,
+                        "source_path": c.metadata.source_path,
+                        "page_title": c.metadata.page_title,
+                    })
+                source_type = detection.content_type if detection else None
+                graph_result = graph_indexer.index_document(
+                    doc_id=doc_id,
+                    kb_id=kb_id,
+                    chunks=chunk_dicts,
+                    source_type=source_type,
+                    user_metadata=user_metadata,
+                    cancel_check=cancel_check,
+                )
+                manager.set_stage_detail(
+                    job_id,
+                    f"graph: {graph_result.get('entities', 0)} entities, "
+                    f"{graph_result.get('assertions', 0)} assertions",
+                    100,
+                )
+                _sync_state()
+            except Exception as graph_err:
+                logger.warning(
+                    f"Job {job_id}: GRAPH_INDEXING failed (non-fatal): {graph_err}"
+                )
+                manager.set_stage_detail(job_id, f"graph indexing failed: {graph_err}", 100)
+                _sync_state()
+
         # Finalise the catalog record
         if doc_id:
             try:
@@ -1305,6 +1350,16 @@ async def delete_document_v2(doc_id: str):
 
         delete_chunks_by_doc_id(client, doc_id)
         logger.info(f"retriva_deleted doc_id={doc_id} (v2)")
+
+        # Graph cleanup (non-fatal if graph is disabled or fails)
+        try:
+            from retriva.config import settings
+            if settings.graph_enabled:
+                from retriva.graph.graph_indexer import GraphIndexer
+                GraphIndexer().delete_document(doc_id)
+        except Exception as graph_err:
+            logger.warning(f"Graph cleanup failed for doc_id={doc_id}: {graph_err}")
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
         
     except Exception as e:
@@ -1323,6 +1378,12 @@ async def delete_documents_by_metadata_v2(request: DeleteMetadataRequest):
     try:
         delete_chunks_by_metadata(client, request.user_metadata_filter)
         logger.info(f"retriva_deleted chunks by metadata (v2): {request.user_metadata_filter}")
+
+        # Graph cleanup for metadata-based deletion is not straightforward
+        # (requires mapping metadata → doc_ids).  Document-level deletion
+        # handles graph cleanup per-doc.  This is documented as a known
+        # limitation in Phase 1.
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as e:
         logger.error(f"Error during chunk deletion by metadata (v2) {request.user_metadata_filter}: {e}")

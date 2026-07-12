@@ -192,6 +192,20 @@ class Settings(BaseSettings):
     # Internal Request Profiler
     enable_internal_profiler: bool = False
 
+    # ── GraphRAG ─────────────────────────────────────────────────────────
+    # When False (default), graph indexing and graph retrieval are completely
+    # disabled and the system behaves exactly as before.
+    graph_enabled: bool = False
+    graph_store_backend: str = "sqlite"  # Phase 1: only "sqlite"
+    graph_traversal_max_depth: int = 2
+    graph_traversal_max_nodes: int = 50
+    graph_traversal_max_edges: int = 100
+    graph_context_token_budget: int = 4000
+    graph_query_timeout_seconds: float = 5.0
+    graph_max_chunks_per_entity: int = 5
+    graph_extraction_confidence_threshold: float = 0.5
+    graph_default_retrieval_mode: str = "vector"  # vector | graph_local | hybrid
+
     # ── Asynchronous job queue (Celery + Redis) ──────────────────────────
     # When ``celery_broker_url`` is set (non-empty), the v2 ingestion pipeline
     # dispatches work to a Celery worker instead of using FastAPI

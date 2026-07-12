@@ -40,6 +40,7 @@ class JobStage(str, Enum):
     NORMALIZATION = "NORMALIZATION"
     CHUNKING = "CHUNKING"
     INDEXING = "INDEXING"
+    GRAPH_INDEXING = "GRAPH_INDEXING"
 
 
 # ---------------------------------------------------------------------------
@@ -285,13 +286,24 @@ class RetrievalRequest(BaseModel):
     top_k: int = Field(20, description="Number of top chunks to return.")
     rerank: bool = Field(True, description="Whether to apply re-ranking.")
     hybrid_selection: bool = Field(True, description="Whether to apply hybrid selection.")
+    retrieval_mode: Optional[str] = Field(
+        None,
+        description="GraphRAG retrieval mode: 'vector' (default), 'graph_local', 'hybrid'. "
+                    "When None, uses settings.graph_default_retrieval_mode.",
+    )
     user_metadata_filter: Optional[Dict[str, str]] = Field(
         None, description="[DEPRECATED] Use metadata_filters instead."
     )
 
 class RetrievalResponse(BaseModel):
-    """Response containing retrieved chunks."""
+    """Response containing retrieved chunks and optional graph data."""
     chunks: List[Dict[str, Any]]
+    entities: Optional[List[Dict[str, Any]]] = None
+    assertions: Optional[List[Dict[str, Any]]] = None
+    relationships: Optional[List[Dict[str, Any]]] = None
+    retrieval_mode: Optional[str] = None
+    warnings: Optional[List[str]] = None
+    truncated: Optional[bool] = None
 
 class MetadataFilterInternal(BaseModel):
     """Internal metadata filter container (legacy)."""
