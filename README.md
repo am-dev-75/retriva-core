@@ -1,12 +1,12 @@
 ![](docs/assets/Retriva_logo_slogan_white_background.jpg)
 
-
 # Retriva
 
 - [Retriva](#retriva)
   - [Introduction](#introduction)
     - [License notes](#license-notes)
   - [Features](#features)
+    - [Modular GraphRAG](#modular-graphrag)
     - [Internal profiler](#internal-profiler)
     - [Extension development](#extension-development)
   - [Design principles](#design-principles)
@@ -19,6 +19,9 @@
         - [Data Sovereignty](#data-sovereignty)
   - [Architecture](#architecture)
     - [Introduction](#introduction-1)
+    - [Data Organization](#data-organization)
+      - [First level: collections](#first-level-collections)
+      - [Second level: knowledge bases](#second-level-knowledge-bases)
     - [Overview](#overview)
     - [Retriva WebUI](#retriva-webui)
       - [Document Ingestion](#document-ingestion)
@@ -76,6 +79,48 @@ Why did I choose the Apache License 2.0? Because this license, combined with cer
 * Debug-only internal observability endpoints
 * User-provided tags for advanced document filtering/querying
 
+### Modular GraphRAG
+
+Retriva Core includes a storage-neutral knowledge-graph indexing and retrieval capability (GraphRAG) that complements the existing Qdrant-based vector retrieval. GraphRAG is a Core platform service: it is available to every Retriva function, whether built into Core or supplied by a commercial extension, without exposing any specific graph database or GraphRAG framework through public contracts.
+
+**Key properties:**
+
+* **Disabled by default** (`GRAPH_ENABLED=false`). When disabled, the system behaves exactly as before — no graph indexing, no graph retrieval, no additional containers.
+* **Storage-neutral contracts.** All graph models (entities, assertions, relationships, events, evidence, communities) are Pydantic `BaseModel` subclasses. No Neo4j, Memgraph, ArangoDB, or other vendor types leak into public APIs.
+* **One logical graph per knowledge boundary.** A single logical graph serves each `(collection, kb_id)` scope. Extensions add namespaced semantic overlays (e.g. `retriva:Organization`, `crm:Opportunity`, `example:dependsOn`) to the common graph rather than creating independent silos.
+* **Assertions, not facts.** LLM-extracted knowledge is modelled as evidence-backed assertions with confidence, provenance, temporal validity, and lifecycle status (`active`, `superseded`, `retracted`, `invalidated`). Conflicting assertions are preserved, not silently overwritten.
+* **Mandatory provenance.** Every entity, assertion, and relationship is traceable to its source documents and chunks. Graph-derived results carry evidence references, graph paths, and retrieval scores.
+* **Core-owned entity resolution.** Canonical entity IDs are assigned by a shared `EntityResolutionService` using conservative matching (exact → external ID → alias → new). Merge candidates are recorded for human review; no risky automatic merges in Phase 1.
+* **Security-trimmed retrieval.** Graph queries filter by `security_scope` before returning results. No graph object, assertion, path, or embedding may cross an unauthorized `(tenant_id, kb_id)` boundary.
+* **Extension SDK/SPI.** Extensions register namespaced vocabularies, extraction profiles, validators, normalizers, entity-resolution hints, retrieval hints, and graph-change event handlers via the `GraphExtensionRegistry` — loaded through the same `RETRIVA_EXTENSIONS` mechanism as the existing `CapabilityRegistry`.
+
+**Ingestion integration.** When enabled, a `GRAPH_INDEXING` stage runs after the existing `INDEXING` stage in the v2 ingestion pipeline:
+
+```
+DETECTING → PREPROCESSING → PARSING → NORMALIZATION → CHUNKING → INDEXING → GRAPH_INDEXING (optional)
+```
+
+Graph indexing failures are isolated: they are logged but never fail the ingestion job or affect the vector index.
+
+**Retrieval modes.** The v2 retrieval API accepts an optional `retrieval_mode` parameter:
+
+| Mode | Description |
+|---|---|
+| `vector` | Backward-compatible default (Qdrant only). |
+| `graph_local` | Entity-centric graph expansion: search entities by query text, expand a bounded neighborhood, retrieve supporting chunks. |
+| `hybrid` | Vector retrieval → map chunks to graph entities → expand neighborhood → retrieve supporting chunks → deduplicate → rerank → assemble provenance-aware context. |
+| `graph_global` | Community-report-based search (designed, not yet implemented). |
+| `auto` | Automatic mode selection (designed, not yet implemented). |
+
+**Backend.** Phase 1 uses SQLite (file-based, no additional container) as the graph store. The `GraphStore` protocol allows swapping to a dedicated graph database in a future phase without changing public contracts. See `specs/016-graphrag/adr-001-graph-backend.md` for the full decision record.
+
+**Configuration.** Key environment variables (all default to disabled):
+
+See [`docs/modular_graphrag.md`](docs/modular_graphrag.md) for more details.
+
+
+Full design documents are in `specs/016-graphrag/`.
+
 ### Internal profiler
 
 The Retriva's Core internal profiler is a debugging tool that allows you to see how long each step of the RAG pipeline takes.
@@ -130,6 +175,11 @@ Times are expressed in milliseconds and are relative to the start of the request
 
 As mentioned in the [Licensing notes](#licensing-notes), Retriva Core support extensions that can be added to the codebase. These extensions allow you to customize and enhance Retriva's functionality without modifying the core code.
 
+Proprietary extensions to add additional features such as:
+
+* Support for users' authN/authZ via Microsoft Entra
+* Automatic Knowledge Base synchronization with Mediawiki websites
+
 ## Design principles
 
 ### Optimized for engineering/scientific knowledge bases
@@ -172,10 +222,12 @@ Basically, to use a RAG system you need to
 ### Data Organization
 
 #### First level: collections
+
 A collection is a uniquely named container that stores and organizes your data (vectors and associated metadata). It acts much like a table in a relational database, providing a unified space to perform semantic similarity searches, exact match filtering, and payload-based queries.
 In a real-world use case, for instance, each company's department could be assigned a different collection.
 
 #### Second level: knowledge bases
+
 Within a collection, multiple knowledge bases can be created. These are helpful for example to organize data to facilitate data retrieval and manage users' access permission. Knowledge bases are implemented by exploiting Retriva's tagging feature. Specifically, each KB is assigned a different kb_id tag that identifies it univocally.
 
 ### Overview
@@ -201,6 +253,7 @@ The **Ingestion page** is used to add new files and documents to the system. It 
 
 **1. Static Ingestion**
 Allows users to manually upload static documents into the system. Users can:
+
 * **Select Target Knowledge Base**: Specify which Knowledge Base the uploaded documents should belong to. If no Knowledge Base is selected, the documents will be uploaded to the `default` Knowledge Base.
 * **Upload Files & Folders**: Upload individual files or entire directory structures of supported formats (PDF, DOCX, XLSX, Markdown, etc.).
 * **Attach Ingestion Metadata (optional)**: Define key-value pairs (e.g., `project: Apollo`) to tag the uploaded files. This metadata is applied at document level during ingestion and automatically propagated to all generated text chunks. These optional, user-defined metadata can be later used to filter documents during catalog exploration and RAG retrieval.
@@ -306,7 +359,7 @@ Procedure to install Retriva and its dependencies manually:
  / _` |/ _` | '__/ _` | '_ \| __| 
 | (_| | (_| | | | (_| | | | | |_  
  \__, |\__,_|_|  \__,_|_| |_|\__| 
-    |_|           
+    |_|         
 
 ...
 0:6333", workers: 31, listening on: 0.0.0.0:6333
@@ -336,19 +389,19 @@ If you plan to deploy Retriva Core as a Docker container, refer to the [Containe
 Thanks to its deeply modular design, Retriva can be deployed in several different forms. The following table list the most relevant one, although others are technically possible.
 
 
-| #   | Deployment model                                          | Where components run                                                                           | Main security benefit                                                                                        | Business benefit                                                                                   | Pros                                                                                                                                                                                    | Cons                                                                                                                                                   | Best fit                                                                                                 | Upfront investment | Capex costs | Opex costs |
-| --- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | ------------------ | ----------- | ---------- |
-| 1   | Fully on-prem                                             | WebUI, Gateway, Core, Qdrant, Tika, embeddings, LLM runner all inside customer premises        | Maximum data locality and operational control                                                                | Strongest fit for highly regulated customers and customers with strict data residency requirements | Full control; no sensitive data leaves premises; easier to explain to conservative buyers; works with air-gapped variants                                                               | Highest deployment complexity; customer needs GPU/infra; harder upgrades/support; less elastic                                                         | Defense, critical infrastructure, industrial, healthcare, legal, customers with strict internal policies | $$$                | $$$         | $          |
-| 2   | Hybrid: all on-prem except confidential remote LLM runner | WebUI/Gateway/Core/Qdrant/Tika on-prem; LLM inference on remote confidential-computing machine | Keeps document store and vector DB local while protecting prompts/context in remote TEE                      | Good compromise for customers without local GPU capacity                                           | Lower customer hardware burden; scalable LLM inference; confidential computing reduces cloud-operator trust assumptions; attestation can prove workload identity before sending prompts | Prompts/context still leave premises; requires network connectivity; requires attestation story; may still raise sovereignty questions                 | Customers that can keep data store on-prem but need better LLM compute                                   | $$                 | $$          | $$         |
-| 3   | Fully remote confidential-computing deployment            | Entire Retriva stack runs on confidential-computing VM / cluster                               | Protects data in use from cloud operator and host-level access under the confidential computing threat model | Simplest hosted offer with strong security story                                                   | Easy deployment; scalable; provider can operate/support; good SaaS-like business model; strong confidential-computing narrative                                                         | Data leaves customer environment; compliance depends on region/provider; customer must trust attestation, deployment pipeline, and provider operations | Managed Retriva service, pilots, SMBs, customers comfortable with trusted cloud                          | $                  | $           | $$$        |
-
-[learn.microsoft.com], [redhat.com]
+| # | Deployment model                                          | Where components run                                                                           | Main security benefit                                                                                        | Business benefit                                                                                   | Pros                                                                                                                                                                                    | Cons                                                                                                                                                   | Best fit                                                                                                 | Upfront investment | Capex costs | Opex costs |
+| - | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | ------------------ | ----------- | ---------- |
+| 1 | Fully on-prem                                             | WebUI, Gateway, Core, Qdrant, Tika, embeddings, LLM runner all inside customer premises        | Maximum data locality and operational control                                                                | Strongest fit for highly regulated customers and customers with strict data residency requirements | Full control; no sensitive data leaves premises; easier to explain to conservative buyers; works with air-gapped variants                                                               | Highest deployment complexity; customer needs GPU/infra; harder upgrades/support; less elastic                                                         | Defense, critical infrastructure, industrial, healthcare, legal, customers with strict internal policies | $$$                | $$$         | $          |
+| 2 | Hybrid: all on-prem except confidential remote LLM runner | WebUI/Gateway/Core/Qdrant/Tika on-prem; LLM inference on remote confidential-computing machine | Keeps document store and vector DB local while protecting prompts/context in remote TEE                      | Good compromise for customers without local GPU capacity                                           | Lower customer hardware burden; scalable LLM inference; confidential computing reduces cloud-operator trust assumptions; attestation can prove workload identity before sending prompts | Prompts/context still leave premises; requires network connectivity; requires attestation story; may still raise sovereignty questions                 | Customers that can keep data store on-prem but need better LLM compute                                   | $$                 | $$          | $$         |
+| 3 | Fully remote confidential-computing deployment            | Entire Retriva stack runs on confidential-computing VM / cluster                               | Protects data in use from cloud operator and host-level access under the confidential computing threat model | Simplest hosted offer with strong security story                                                   | Easy deployment; scalable; provider can operate/support; good SaaS-like business model; strong confidential-computing narrative                                                         | Data leaves customer environment; compliance depends on region/provider; customer must trust attestation, deployment pipeline, and provider operations | Managed Retriva service, pilots, SMBs, customers comfortable with trusted cloud                          | $                  | $           | $$$        |
 
 ## Possible future developments
 
 * Test deployment on a confidential computing-enabled cloud, using TensorRT-LLM as the LLM runner.
 * Enable Qdrant hybrid search (semantic + keyword).
-* Refine retrieval pipeline by adding GraphRAG capabilities.
+* GraphRAG Phase 2: community detection, community report generation, and global GraphRAG search.
+* GraphRAG Phase 3: probabilistic entity resolution with automatic merges above confidence threshold.
+* GraphRAG Phase 4: per-document ACLs (beyond kb_id scoping) and inference-leakage hardening for community summaries.
 * Interfacing to external IAM systems for user authentication and authorization.
 
 ## Licensing
