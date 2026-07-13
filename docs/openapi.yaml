@@ -1175,8 +1175,10 @@ components:
     JobStage:
       type: string
       enum:
-        [DETECTING, PREPROCESSING, PARSING, NORMALIZATION, CHUNKING, INDEXING]
-      description: Ordered stages of the v2 ingestion pipeline.
+        [DETECTING, PREPROCESSING, PARSING, NORMALIZATION, CHUNKING, INDEXING, GRAPH_INDEXING]
+      description: |
+        Ordered stages of the v2 ingestion pipeline.
+        GRAPH_INDEXING is optional and only runs when GRAPH_ENABLED=true.
 
     JobResponseV2:
       type: object
@@ -1303,6 +1305,15 @@ components:
         top_k: { type: integer, default: 20 }
         rerank: { type: boolean, default: true }
         hybrid_selection: { type: boolean, default: true }
+        retrieval_mode:
+          type: string
+          enum: [vector, graph_local, graph_global, hybrid, auto]
+          default: vector
+          description: |
+            GraphRAG retrieval mode. When None, uses GRAPH_DEFAULT_RETRIEVAL_MODE.
+            'vector' is the backward-compatible default.
+            'graph_local' and 'hybrid' require GRAPH_ENABLED=true.
+            'graph_global' and 'auto' are designed but not yet implemented.
         user_metadata_filter:
           type: object
           additionalProperties: { type: string }
@@ -1315,6 +1326,27 @@ components:
         chunks:
           type: array
           items: { type: object }
+        entities:
+          type: array
+          items: { type: object }
+          description: Graph entities (present when retrieval_mode is graph_local or hybrid).
+        assertions:
+          type: array
+          items: { type: object }
+          description: Evidence-backed assertions from the graph.
+        relationships:
+          type: array
+          items: { type: object }
+          description: Graph relationships traversed during retrieval.
+        retrieval_mode:
+          type: string
+          description: The retrieval mode that was actually used.
+        warnings:
+          type: array
+          items: { type: string }
+        truncated:
+          type: boolean
+          description: True if graph traversal limits (max_nodes, max_edges) were reached.
 
     DocumentFilterRequest:
       type: object
