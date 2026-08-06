@@ -20,7 +20,13 @@ from retriva.logger import get_logger
 from typing import Callable, List, Optional
 
 import httpx
-from openai import APIConnectionError, APITimeoutError, RateLimitError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    AuthenticationError,
+    PermissionDeniedError,
+)
 
 logger = get_logger(__name__)
 
@@ -44,6 +50,19 @@ _DATA_URI_RE = re.compile(r"data:[^;]+;base64,[A-Za-z0-9+/=\s]+")
 
 class NetworkUnreachableError(RuntimeError):
     """Raised when the host is unreachable at the OS/network level."""
+
+
+class EmbeddingConfigurationError(Exception):
+    """Raised when the embedding provider rejects a request for a
+    configuration-level reason (invalid/expired API key, insufficient
+    permissions).
+
+    These errors are NOT resolved by retrying nor by the per-text
+    zero-vector fallback, so they propagate out of ``get_embeddings()`` and
+    fail the ingestion job.  This makes a misconfigured embedding provider
+    (e.g. a wrong ``EMBEDDING_API_KEY`` / ``EMBEDDING_BASE_URL``) visible
+    instead of silently storing zero-vector chunks and reporting success.
+    """
 
 
 def _is_network_unreachable(exc: BaseException) -> bool:
@@ -148,6 +167,16 @@ def _embed_batch(client: OpenAI, texts: List[str]) -> List[List[float]]:
                 raise RuntimeError(
                     f"Embedding failed after {MAX_RETRIES} attempts: {e}"
                 ) from e
+
+        except (AuthenticationError, PermissionDeniedError) as e:
+            # The provider rejected the request for a configuration reason
+            # (invalid/expired API key, insufficient permissions). Nothing we
+            # do here can fix that, and the zero-vector fallback would only
+            # hide a misconfigured embedding provider, so fail loudly.
+            raise EmbeddingConfigurationError(
+                f"Embedding provider rejected the request (check "
+                f"EMBEDDING_API_KEY / EMBEDDING_BASE_URL): {e}"
+            ) from e
 
         except Exception as e:
             # Unexpected / non-retryable (bad request, auth, etc.)
