@@ -13,15 +13,24 @@ WORKDIR /app
 # Install system dependencies
 # - tesseract-ocr & language packs: required by OCRmyPDF for scanning
 # - ghostscript: required by OCRmyPDF
+# - build-essential (gcc/g++/make): required by PyTorch Inductor to JIT-compile
+#   CPU kernels for Docling's deep-learning layout/table models. Without a C++
+#   compiler, torch._inductor raises "InvalidCxxCompiler: No working C++
+#   compiler found" and Docling silently degrades to a lossy parse.
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-eng \
     tesseract-ocr-ita \
     ghostscript \
     curl \
+    build-essential \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Give the non-root user a writable TorchInductor kernel cache dir (created on
+# first layout-model inference) and point Inductor at it.
+ENV TORCHINDUCTOR_CACHE_DIR=/app/.torchinductor
 
 # Create a non-root user and group
 RUN useradd -m -U appuser && chown -R appuser:appuser /app
