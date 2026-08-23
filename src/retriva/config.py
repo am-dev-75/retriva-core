@@ -56,8 +56,16 @@ class Settings(BaseSettings):
     # chat_model: str = "minimax/minimax-m2.7"
     chat_openai_api_key: str = ""
     chat_temperature: float = 0.0
-    chat_top_p: float = 0.9
+    # Nucleus-sampling mass.  At temperature=0 (greedy) this has no effect,
+    # but 1.0 makes the deterministic intent explicit and avoids a latent
+    # truncation tail if temperature is ever raised above 0.
+    chat_top_p: float = 1.0
     chat_max_tokens: int = 4096
+    # Optional best-effort reproducibility seed forwarded to the chat API
+    # via extra_body.  Provider-dependent: OpenRouter/OpenAI honor it when
+    # the backing model supports it, but cloud inference does not guarantee
+    # bit-identical output.  None/empty = not sent (model default).
+    chat_seed: Optional[int] = None
     # Reasoning effort for models that support it (e.g. OpenAI o-series,
     # DeepSeek-R1 via OpenRouter).  Values: "low", "medium", "high".
     # None/empty = not sent (model default).

@@ -138,6 +138,7 @@ class DefaultEntityExtractor:
                     {"role": "user", "content": text_block},
                 ],
                 temperature=0.0,
+                top_p=1.0,
                 max_tokens=4096,
             )
             content = response.choices[0].message.content or ""

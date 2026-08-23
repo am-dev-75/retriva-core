@@ -550,7 +550,20 @@ async def _handle_streaming(
 async def create_chat_completion(request: ChatCompletionRequest):
     question = _extract_user_question(request)
     bypass_rag = question.startswith("### Task:")
-    
+
+    # Retriva is designed to be "nearly deterministic": the server-side
+    # CHAT_TEMPERATURE / CHAT_TOP_P / CHAT_SEED settings always win.  The
+    # OpenAI-compatible schema accepts temperature/top_p from clients (e.g.
+    # Open WebUI) for API compatibility, but they are intentionally NOT
+    # forwarded to the answerer.  Warn so operators notice misconfiguration.
+    if request.temperature is not None or request.top_p is not None:
+        logger.warning(
+            "Client sent temperature=%s / top_p=%s but Retriva uses server-side "
+            "CHAT_TEMPERATURE=%s / CHAT_TOP_P=%s; client values are ignored.",
+            request.temperature, request.top_p,
+            settings.chat_temperature, settings.chat_top_p,
+        )
+
     # Normalize legacy user_metadata_filter into advanced metadata_filters
     if request.user_metadata_filter:
         if request.metadata_filters is None:

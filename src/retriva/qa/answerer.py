@@ -32,13 +32,24 @@ logger = get_logger(__name__)
 def _chat_extra_kwargs() -> dict:
     """Build optional kwargs for the chat completions API.
 
-    Currently supports ``reasoning_effort`` for models that accept it
-    (e.g. OpenAI o-series, DeepSeek-R1).  Returns an empty dict when the
-    setting is not configured, so non-reasoning models are unaffected.
+    Currently supports two optional, provider-dependent parameters injected
+    via ``extra_body``:
+      * ``reasoning_effort`` — for models that accept it (e.g. OpenAI o-series,
+        DeepSeek-R1 via OpenRouter).
+      * ``seed`` — best-effort reproducibility seed (provider-dependent; cloud
+        inference does not guarantee bit-identical output).
+
+    Returns an empty dict when neither is configured, so non-reasoning models
+    and providers that ignore ``seed`` are unaffected.
     """
+    extra_body: dict = {}
     effort = settings.chat_reasoning_effort
     if effort and effort.strip():
-        return {"extra_body": {"reasoning_effort": effort.strip()}}
+        extra_body["reasoning_effort"] = effort.strip()
+    if settings.chat_seed is not None:
+        extra_body["seed"] = settings.chat_seed
+    if extra_body:
+        return {"extra_body": extra_body}
     return {}
 
 
@@ -287,6 +298,7 @@ def ask_question_without_retrieval(question: str) -> str:
         model=settings.chat_model,
         messages=[{"role": "user", "content": question}],
         temperature=settings.chat_temperature,
+        top_p=settings.chat_top_p,
         max_tokens=settings.chat_max_tokens,
         **_chat_extra_kwargs(),
     )
@@ -329,6 +341,7 @@ def ask_question_streaming_without_retrieval(question: str):
         model=settings.chat_model,
         messages=[{"role": "user", "content": question}],
         temperature=settings.chat_temperature,
+        top_p=settings.chat_top_p,
         max_tokens=settings.chat_max_tokens,
         stream=True,
         **_chat_extra_kwargs(),
@@ -451,6 +464,7 @@ async def ask_question_streaming_without_retrieval_async(question: str):
         model=settings.chat_model,
         messages=[{"role": "user", "content": question}],
         temperature=settings.chat_temperature,
+        top_p=settings.chat_top_p,
         max_tokens=settings.chat_max_tokens,
         stream=True,
         **_chat_extra_kwargs(),
