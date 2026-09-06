@@ -15,7 +15,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from retriva.ingestion_api.routers import ingest, ingest_HTML, ingest_image, ingest_text, ingest_mediawiki, ingest_pdf, ingest_markdown, jobs, documents
-from retriva.ingestion_api.routers import v2_documents, v2_jobs, v2_artifacts, v2_discovery, v2_metadata, v2_retrieval, v2_kbs
+from retriva.ingestion_api.routers import v2_documents, v2_jobs, v2_artifacts, v2_discovery, v2_metadata, v2_retrieval, v2_kbs, v2_sessions
 from retriva.indexing.qdrant_store import init_collection, get_client
 from retriva.domain.kb import seed_default_kb
 from retriva.logger import get_logger
@@ -43,6 +43,32 @@ async def lifespan(app: FastAPI):
     # Load extensions (no-op if RETRIVA_EXTENSIONS is empty)
     from retriva.registry import CapabilityRegistry
     CapabilityRegistry().load_extensions()
+
+    # Mount extension-provided API routers (e.g. CRM Assistant).
+    try:
+        from retriva.registry import CapabilityRegistry as _Reg
+        reg = _Reg()
+        for cap_name in list(reg.list_capabilities().keys()):
+            if cap_name.endswith("_api_router"):
+                try:
+                    provider = reg.get(cap_name)
+                    router = getattr(provider, "router", None)
+                    if router is not None:
+                        app.include_router(router)
+                        logger.info(f"Mounted extension router: {cap_name}")
+                except Exception as e:
+                    logger.error(f"Failed to mount extension router {cap_name}: {e}")
+    except Exception as e:
+        logger.error(f"Extension router discovery failed: {e}")
+
+    # Best-effort expiration sweep for session attachments/artifacts.
+    try:
+        from retriva.config import settings as _settings
+        if getattr(_settings, "session_sweep_on_startup", True):
+            from retriva.session.lifecycle import sweep_expired
+            sweep_expired()
+    except Exception as e:
+        logger.error(f"Session expiration sweep failed on startup: {e}")
 
     yield
     # Shutdown
@@ -91,3 +117,4 @@ app.include_router(v2_artifacts.router)
 app.include_router(v2_metadata.router)
 app.include_router(v2_retrieval.router)
 app.include_router(v2_kbs.router)
+app.include_router(v2_sessions.router)

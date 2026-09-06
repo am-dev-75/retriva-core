@@ -290,6 +290,27 @@ def ask_question_without_retrieval(question: str) -> str:
         max_tokens=settings.chat_max_tokens,
         **_chat_extra_kwargs(),
     )
+
+
+def ask_task_question(question: str) -> str:
+    """Ask the task LLM a question without retrieval.
+
+    Uses the ``task_*`` settings (which fall back to ``chat_*`` when unset).
+    Intended for non-conversational batch tasks: extraction, classification,
+    summarization — e.g. CRM offering extraction, ICP summarization,
+    candidate-mention classification.
+    """
+    client = OpenAI(
+        api_key=settings.task_openai_api_key or settings.chat_openai_api_key,
+        base_url=settings.task_base_url or settings.chat_base_url,
+    )
+    response = client.chat.completions.create(
+        model=settings.task_model or settings.chat_model,
+        messages=[{"role": "user", "content": question}],
+        temperature=settings.task_temperature,
+        max_tokens=settings.task_max_tokens,
+        **_chat_extra_kwargs(),
+    )
     if not response.choices:
         return "Error: LLM returned an empty response."
     message = response.choices[0].message

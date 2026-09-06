@@ -74,6 +74,18 @@ class Settings(BaseSettings):
     # default Retriva grounded-QA prompt.  This is the primary hook used by
     # Retriva Pro deployments and per-customer customisations.
     system_prompt_override: Optional[str] = None
+
+    # Task model — a separate LLM for non-conversational batch tasks
+    # (extraction, classification, summarization) used by extensions like
+    # the CRM Assistant.  When any field is empty, it falls back to the
+    # corresponding ``chat_*`` setting, so this is fully backward-compatible.
+    # Deployments can point this at a smaller/faster/cheaper model optimized
+    # for structured output while keeping the chat model for conversations.
+    task_base_url: str = ""
+    task_model: str = ""
+    task_openai_api_key: str = ""
+    task_temperature: float = 0.0
+    task_max_tokens: int = 4096
     
     # Storage and Persistence
     storage_path: str = str((Path(__file__).resolve().parent.parent.parent / "storage").resolve())
@@ -192,6 +204,15 @@ class Settings(BaseSettings):
     # Internal Request Profiler
     enable_internal_profiler: bool = False
 
+    # ── Session Document Processing (chat attachments & artifacts) ───────
+    # Attachments are session-scoped, parsed but NEVER ingested into the KB.
+    # TTL is in seconds.  The expiration sweeper deletes expired files.
+    session_attachment_max_size: int = 50 * 1024 * 1024  # 50 MiB
+    session_attachment_ttl_seconds: int = 24 * 3600     # 24h
+    session_artifact_ttl_seconds: int = 48 * 3600       # 48h
+    # Run the expiration sweeper on API startup (best-effort cleanup).
+    session_sweep_on_startup: bool = True
+
     # ── GraphRAG ─────────────────────────────────────────────────────────
     # When False (default), graph indexing and graph retrieval are completely
     # disabled and the system behaves exactly as before.
@@ -244,5 +265,14 @@ class Settings(BaseSettings):
                 self.visual_openai_api_key = self.openrouter_openai_api_key
             if not self.retrieval_rerank_api_key:
                 self.retrieval_rerank_api_key = self.openrouter_openai_api_key
+            if not self.task_openai_api_key:
+                self.task_openai_api_key = self.openrouter_openai_api_key
+        # Task LLM falls back to chat LLM when unset.
+        if not self.task_base_url:
+            self.task_base_url = self.chat_base_url
+        if not self.task_model:
+            self.task_model = self.chat_model
+        if not self.task_openai_api_key:
+            self.task_openai_api_key = self.chat_openai_api_key
 
 settings = Settings()
