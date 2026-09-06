@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     task_openai_api_key: str = ""
     task_temperature: float = 0.0
     task_max_tokens: int = 4096
+    # System prompt for the task LLM.  When empty, a built-in default is
+    # used that instructs the model to behave as a precise extraction /
+    # classification / summarization assistant.  This is distinct from the
+    # chat system prompt (``system_prompt_override``) because the task LLM
+    # serves a different purpose: structured data extraction, not
+    # conversational RAG.
+    task_system_prompt: str = ""
     
     # Storage and Persistence
     storage_path: str = str((Path(__file__).resolve().parent.parent.parent / "storage").resolve())
