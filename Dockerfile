@@ -61,3 +61,63 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # The default command runs the OpenAI API (Core). It can be overridden in compose for Ingestion API.
 CMD ["python", "-m", "retriva.openai_api", "--host", "0.0.0.0", "--port", "8001"]
+
+# ── Pro extensions stage ──────────────────────────────────────────────────
+# This stage is only built when the Docker build targets "pro" (via
+# docker-compose `target: pro` or `docker build --target pro`).
+#
+# The build context must include the Pro extension repos.  In the local
+# containerized deployment, set RETRIVA_CORE_CONTEXT=.. so the workspace
+# parent is the build context, and the COPY paths below resolve.
+#
+# Pro extensions are installed as pip packages.  RETRIVA_EXTENSIONS is set
+# at runtime via docker-compose environment to load them at startup.
+
+FROM python:3.12-slim AS pro
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src
+ENV TORCHINDUCTOR_CACHE_DIR=/app/.torchinductor
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-ita \
+    ghostscript \
+    curl \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -U appuser && chown -R appuser:appuser /app
+
+COPY requirements.txt /app/
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY --chown=appuser:appuser src /app/src
+
+# Install Retriva Web Research (shared Pro module).
+COPY retriva-web-research /tmp/retriva-web-research
+RUN pip install --no-cache-dir /tmp/retriva-web-research && \
+    rm -rf /tmp/retriva-web-research
+
+# Install Retriva CRM Assistant (Pro extension).
+COPY retriva-crm-assistant /tmp/retriva-crm-assistant
+RUN pip install --no-cache-dir /tmp/retriva-crm-assistant && \
+    rm -rf /tmp/retriva-crm-assistant
+
+RUN mkdir -p /app/storage && chown -R appuser:appuser /app/storage && \
+    chmod -R a+rw /usr/local/lib/python3.12/site-packages/rapidocr/models/
+USER appuser
+
+EXPOSE 8000 8001
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8001/health || curl -f http://localhost:8000/health || exit 1
+
+CMD ["python", "-m", "retriva.openai_api", "--host", "0.0.0.0", "--port", "8001"]
