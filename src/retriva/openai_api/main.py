@@ -15,7 +15,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from retriva.openai_api.routers import chat_completions, models, internal, v2_sessions
+from retriva.openai_api.routers import chat_completions, models, internal
+from retriva.ingestion_api.routers import v2_sessions
 from retriva.indexing.qdrant_store import init_collection, get_client
 from retriva.logger import get_logger
 
