@@ -47,6 +47,12 @@ def set_collection_name(name: str):
     """Set the collection for the current context. Returns the reset token."""
     return _collection_name_ctx.set(name)
 
+
+def reset_collection_name(token) -> None:
+    """Restore the collection context returned by :func:`set_collection_name`."""
+    _collection_name_ctx.reset(token)
+
+
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds
 
@@ -119,7 +125,7 @@ def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optio
                 vector=embedding,
                 payload={
                     "text": c.text,
-                    **c.metadata.model_dump(exclude={"content_hash", "content_hash_algorithm", "source_paths"}),
+                    **c.metadata.model_dump(exclude={"content_hash", "content_hash_algorithm", "source_paths", "kb_id"}),
                     # Dedup fields — present on new v2 ingestions, None on legacy chunks
                     "content_hash": c.metadata.content_hash,
                     "content_hash_algorithm": c.metadata.content_hash_algorithm,
@@ -131,7 +137,6 @@ def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optio
                         if c.metadata.source_paths
                         else c.metadata.source_path
                     ),
-                    "kb_id": c.metadata.kb_id,
                 }
             )
             for c, embedding in zip(batch_chunks, embeddings)
@@ -201,15 +206,18 @@ def search_chunks(
     rid = _get_req_id()
     logger.info(f"[{rid}] search_chunks_started: mode={metadata_filter_mode}, k={retriever_top_k}")
     
-    # Merge explicit metadata filters with kb_ids filter
+    # Merge explicit metadata filters with kb_ids filter.
+    # KB membership lives in user_metadata.kb_ids (a list).  We add it as
+    # a separate user_metadata filter so build_qdrant_filter maps it to the
+    # correct nested path.
     combined_filters = (metadata_filters or []).copy()
     if kb_ids:
         combined_filters.append({
-            "field": "kb_id",
+            "field": "kb_ids",
             "operator": "in",
-            "value": kb_ids
+            "value": kb_ids,
         })
-    
+
     qdrant_filter = build_qdrant_filter(combined_filters)
     
     if metadata_filter_mode == "hard":
@@ -357,9 +365,14 @@ def delete_chunks_by_kb_id(client: QdrantClient, kb_id: str) -> int:
     (idempotent — Qdrant treats "no matching points" as a no-op).
     """
     rid = _get_req_id()
+    # KB membership lives in user_metadata.kb_ids (a list).  Backward compat:
+    # also match legacy payloads that used user_metadata.kb_id (singular) or
+    # a top-level kb_id field.
     kb_filter = Filter(
-        must=[
-            FieldCondition(key="kb_id", match=MatchValue(value=kb_id))
+        should=[
+            FieldCondition(key="user_metadata.kb_ids", match=MatchValue(value=kb_id)),
+            FieldCondition(key="user_metadata.kb_id", match=MatchValue(value=kb_id)),
+            FieldCondition(key="kb_id", match=MatchValue(value=kb_id)),
         ]
     )
 
@@ -475,13 +488,24 @@ def list_documents(client: QdrantClient, metadata_filter: Optional[Dict[str, str
             )
         )
     if metadata_filter:
-        must_conditions.extend([
-            FieldCondition(
-                key=f"user_metadata.{k}",
-                match=MatchValue(value=v),
-            )
-            for k, v in metadata_filter.items()
-        ])
+        for k, v in metadata_filter.items():
+            # ``kb_ids`` is a list field — use MatchAny so that a point
+            # whose ``user_metadata.kb_ids`` contains ``v`` is matched.
+            # All other keys are scalar (MatchValue).
+            if k == "kb_ids":
+                must_conditions.append(
+                    FieldCondition(
+                        key=f"user_metadata.{k}",
+                        match=MatchAny(any=[v] if not isinstance(v, list) else v),
+                    )
+                )
+            else:
+                must_conditions.append(
+                    FieldCondition(
+                        key=f"user_metadata.{k}",
+                        match=MatchValue(value=v),
+                    )
+                )
         
     scroll_filter = Filter(must=must_conditions) if must_conditions else None
     
@@ -501,14 +525,19 @@ def list_documents(client: QdrantClient, metadata_filter: Optional[Dict[str, str
         for point in points:
             d_id = point.payload.get("doc_id")
             if d_id and d_id not in unique_docs:
+                _um = point.payload.get("user_metadata") or {}
+                _kb_ids = _um.get("kb_ids")
+                if not isinstance(_kb_ids, list):
+                    _kb_id = _kb_ids or _um.get("kb_id") or point.payload.get("kb_id")
+                    _kb_ids = [_kb_id] if _kb_id else ["default"]
                 unique_docs[d_id] = {
                     "id": d_id,
                     "doc_id": d_id,
                     "source_path": point.payload.get("source_path", ""),
                     "page_title": point.payload.get("page_title", ""),
-                    "user_metadata": point.payload.get("user_metadata") or {},
-                    "metadata": point.payload.get("user_metadata") or {},
-                    "kb_id": point.payload.get("kb_id") or "default",
+                    "user_metadata": _um,
+                    "metadata": _um,
+                    "kb_ids": _kb_ids,
                     "filename": point.payload.get("filename") or "",
                     "size": point.payload.get("content_size") or 0,
                     "ingestion_status": point.payload.get("ingestion_status") or "completed",
@@ -563,6 +592,10 @@ def get_metadata_values(client: QdrantClient, key: str) -> List[Dict[str, Any]]:
                 break
         if isinstance(payload_val, str):
             counts[payload_val] += 1
+        elif isinstance(payload_val, list):
+            for item in payload_val:
+                if isinstance(item, str):
+                    counts[item] += 1
             
     # Return as list of dicts for the new schema
     return sorted(
@@ -608,14 +641,20 @@ def search_documents(
 
         must_conditions = []
         if kb_ids:
+            # KB membership lives in user_metadata.kb_ids (a list).
+            # Backward compat: also match legacy payloads that used
+            # user_metadata.kb_id (singular) or a top-level kb_id field.
             kb_should = [
-                FieldCondition(key="kb_id", match=MatchAny(any=kb_ids)),
+                FieldCondition(key="user_metadata.kb_ids", match=MatchAny(any=kb_ids)),
                 FieldCondition(key="user_metadata.kb_id", match=MatchAny(any=kb_ids)),
+                FieldCondition(key="kb_id", match=MatchAny(any=kb_ids)),
             ]
-            # If 'default' is requested, also include points with no kb_id at all (legacy)
+            # If 'default' is requested, also include points with no KB
+            # membership at all (legacy chunks without any kb_id field).
             if "default" in kb_ids:
+                kb_should.append(IsEmptyCondition(is_empty=PayloadField(key="user_metadata.kb_ids")))
                 kb_should.append(IsEmptyCondition(is_empty=PayloadField(key="kb_id")))
-                
+
             kb_filter = Filter(should=kb_should)
             must_conditions.append(kb_filter)
 
@@ -658,14 +697,19 @@ def search_documents(
                                 for f in metadata_filters:
                                     reasons.append(f"metadata:{f.get('field', 'unknown')}")
 
+                            _um = payload.get("user_metadata") or {}
+                            _kb_ids = _um.get("kb_ids")
+                            if not isinstance(_kb_ids, list):
+                                _kb_id = _kb_ids or _um.get("kb_id") or payload.get("kb_id")
+                                _kb_ids = [_kb_id] if _kb_id else ["default"]
                             unique_docs[doc_id] = {
                                 "id": doc_id,
                                 "doc_id": doc_id,
                                 "source_path": payload.get("source_path") or "",
                                 "page_title": payload.get("page_title") or "",
-                                "user_metadata": payload.get("user_metadata") or {},
-                                "metadata": payload.get("user_metadata") or {},
-                                "kb_id": payload.get("kb_id") or "default",
+                                "user_metadata": _um,
+                                "metadata": _um,
+                                "kb_ids": _kb_ids,
                                 "filename": payload.get("filename") or "",
                                 "size": payload.get("content_size") or 0,
                                 "ingestion_status": payload.get("ingestion_status") or "completed",

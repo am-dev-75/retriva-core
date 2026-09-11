@@ -95,11 +95,11 @@ RUN apt-get update && apt-get install -y \
 
 RUN useradd -m -U appuser && chown -R appuser:appuser /app
 
-COPY requirements.txt /app/
+COPY retriva-core/requirements.txt /app/
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-COPY --chown=appuser:appuser src /app/src
+COPY --chown=appuser:appuser retriva-core/src /app/src
 
 # Install Retriva Web Research (shared Pro module).
 COPY retriva-web-research /tmp/retriva-web-research

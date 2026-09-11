@@ -19,6 +19,9 @@ from retriva.logger import get_logger
 from retriva.registry import CapabilityRegistry
 from typing import List, Dict, Optional, Any
 
+import retriva.qa.reranker          # noqa: F401 — registers DefaultReranker
+import retriva.qa.hybrid_selector   # noqa: F401 — registers DefaultHybridSelector
+
 logger = get_logger(__name__)
 
 

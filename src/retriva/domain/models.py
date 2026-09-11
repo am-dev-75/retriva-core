@@ -32,7 +32,9 @@ class ChunkMetadata(BaseModel):
     content_size: Optional[int] = None
     ingestion_status: str = "completed"
     created_at: Optional[str] = None
-    user_metadata: Optional[Dict[str, str]] = None
+    # User metadata may contain structured values. In particular, ``kb_ids``
+    # is a non-empty list because a chunk may belong to multiple KBs.
+    user_metadata: Optional[Dict[str, Any]] = None
     # --- Deduplication fields (v2, optional for backward compat) ---
     content_hash: Optional[str] = None
     content_hash_algorithm: Optional[str] = None
@@ -60,7 +62,8 @@ class ParsedDocument(BaseModel):
     language: str = "en"
     chunks: List[Chunk] = Field(default_factory=list)
     images: List[ImageContext] = Field(default_factory=list)
-    user_metadata: Optional[Dict[str, str]] = None
+    # User metadata may contain structured values such as ``kb_ids``.
+    user_metadata: Optional[Dict[str, Any]] = None
     kb_id: str = "default"
     filename: Optional[str] = None
     content_size: Optional[int] = None

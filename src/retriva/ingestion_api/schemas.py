@@ -14,7 +14,7 @@
 
 import json
 from pydantic import BaseModel, Field, field_validator
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from retriva.domain.models import Chunk
 
 # ---------------------------------------------------------------------------
@@ -40,8 +40,8 @@ class UserMetadataValidationError(ValueError):
 
 
 def validate_user_metadata(
-    value: Optional[Dict[str, str]],
-) -> Optional[Dict[str, str]]:
+    value: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
     """Validate user_metadata against hard limits.
 
     Returns the value unchanged if valid, or raises
@@ -59,7 +59,20 @@ def validate_user_metadata(
                 "field": "user_metadata",
                 "msg": f"Key {k!r} is not a string",
             })
-        if not isinstance(v, str):
+        # ``kb_ids`` is the only key that may carry a list of strings;
+        # all other values must be scalar strings.
+        if k == "kb_ids":
+            if not isinstance(v, list):
+                errors.append({
+                    "field": "user_metadata",
+                    "msg": f"Value for key {k!r} must be a list of strings (got {type(v).__name__})",
+                })
+            elif not all(isinstance(item, str) for item in v):
+                errors.append({
+                    "field": "user_metadata",
+                    "msg": f"Value for key {k!r} contains non-string items",
+                })
+        elif not isinstance(v, str):
             errors.append({
                 "field": "user_metadata",
                 "msg": f"Value for key {k!r} is not a string (got {type(v).__name__})",
@@ -77,7 +90,17 @@ def validate_user_metadata(
 
     # --- per-value length ---------------------------------------------------
     for k, v in value.items():
-        if isinstance(v, str) and len(v) > MAX_METADATA_VALUE_LENGTH:
+        if k == "kb_ids" and isinstance(v, list):
+            for item in v:
+                if isinstance(item, str) and len(item) > MAX_METADATA_VALUE_LENGTH:
+                    errors.append({
+                        "field": "user_metadata",
+                        "msg": (
+                            f"Value for key {k!r} item {item!r} is {len(item)} characters, "
+                            f"exceeding maximum of {MAX_METADATA_VALUE_LENGTH}"
+                        ),
+                    })
+        elif isinstance(v, str) and len(v) > MAX_METADATA_VALUE_LENGTH:
             errors.append({
                 "field": "user_metadata",
                 "msg": (

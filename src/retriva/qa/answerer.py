@@ -329,6 +329,15 @@ def ask_task_question(question: str, system_prompt: str = "") -> str:
         base_url=settings.task_base_url or settings.chat_base_url,
     )
     resolved_prompt = system_prompt or settings.task_system_prompt or DEFAULT_TASK_SYSTEM_PROMPT
+    # Task calls (extraction, classification, summarization, ICP generation)
+    # must NOT inherit the chat reasoning effort: 'xhigh' makes reasoning
+    # models spend minutes thinking before emitting the answer, which trips
+    # provider gateway timeouts (504) on batch workloads.  Task calls use
+    # low effort by default; override with TASK_REASONING_EFFORT if needed.
+    task_effort = getattr(settings, "task_reasoning_effort", "") or "low"
+    extra_kwargs: dict = {}
+    if task_effort and task_effort.strip():
+        extra_kwargs["extra_body"] = {"reasoning_effort": task_effort.strip()}
     response = client.chat.completions.create(
         model=settings.task_model or settings.chat_model,
         messages=[
@@ -337,7 +346,7 @@ def ask_task_question(question: str, system_prompt: str = "") -> str:
         ],
         temperature=settings.task_temperature,
         max_tokens=settings.task_max_tokens,
-        **_chat_extra_kwargs(),
+        **extra_kwargs,
     )
     if not response.choices:
         return "Error: LLM returned an empty response."

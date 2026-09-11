@@ -87,9 +87,9 @@ class DocumentIngestRequestV2(BaseModel):
             "detection when provided."
         ),
     )
-    user_metadata: Optional[Dict[str, str]] = Field(
+    user_metadata: Optional[Dict[str, Any]] = Field(
         None,
-        description="Optional user-provided key/value metadata to attach to every chunk.",
+        description="Optional user metadata; values are strings except kb_ids, which is a list of KB IDs.",
     )
     parser_hint: Optional[str] = Field(
         None,
@@ -106,8 +106,8 @@ class DocumentIngestRequestV2(BaseModel):
     @field_validator("user_metadata")
     @classmethod
     def _validate_metadata(
-        cls, v: Optional[Dict[str, str]],
-    ) -> Optional[Dict[str, str]]:
+        cls, v: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
         return validate_user_metadata(v)
 
 
@@ -122,7 +122,7 @@ class MediaWikiExportRequestV2(BaseModel):
         "default",
         description="Knowledge base id to ingest into. Must exist in the registry.",
     )
-    user_metadata: Optional[Dict[str, str]] = Field(
+    user_metadata: Optional[Dict[str, Any]] = Field(
         None,
         description="Optional user-provided key/value metadata to attach to every chunk.",
     )
@@ -130,8 +130,8 @@ class MediaWikiExportRequestV2(BaseModel):
     @field_validator("user_metadata")
     @classmethod
     def _validate_metadata(
-        cls, v: Optional[Dict[str, str]],
-    ) -> Optional[Dict[str, str]]:
+        cls, v: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
         return validate_user_metadata(v)
 
 
@@ -195,7 +195,7 @@ class ArtifactRequestV2(BaseModel):
         default_factory=dict,
         description="Format-specific generation parameters.",
     )
-    user_metadata: Optional[Dict[str, str]] = Field(
+    user_metadata: Optional[Dict[str, Any]] = Field(
         None,
         description="Optional user-provided metadata to associate with the artifact.",
     )
@@ -203,8 +203,8 @@ class ArtifactRequestV2(BaseModel):
     @field_validator("user_metadata")
     @classmethod
     def _validate_metadata(
-        cls, v: Optional[Dict[str, str]],
-    ) -> Optional[Dict[str, str]]:
+        cls, v: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
         return validate_user_metadata(v)
 
 
@@ -233,15 +233,15 @@ class DocumentResponse(BaseModel):
     """Document representation retrieved from vector store."""
     id: str
     doc_id: str
-    kb_id: str = "default"
+    kb_ids: List[str] = Field(default_factory=lambda: ["default"], description="Knowledge base IDs this document belongs to.")
     filename: str = ""
     size: int = 0
     ingestion_status: str = "completed"
     created_at: str = ""
     source_path: str
     page_title: str
-    user_metadata: Optional[Dict[str, str]] = None
-    metadata: Optional[Dict[str, str]] = None  # Frontend alias
+    user_metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None  # Frontend alias
     match_reasons: List[str] = Field(default_factory=list, description="List of reasons why this document matched (semantic, metadata:field, etc.)")
 
     @property

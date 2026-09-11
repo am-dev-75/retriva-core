@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     task_model: str = ""
     task_openai_api_key: str = ""
     task_temperature: float = 0.0
+    # Reasoning effort for task LLM calls.  Defaults to 'low' — batch tasks
+    # (extraction, ICP generation) must not inherit the chat 'xhigh' effort,
+    # which causes multi-minute generations and provider gateway timeouts.
+    task_reasoning_effort: str = "low"
     task_max_tokens: int = 4096
     # System prompt for the task LLM.  When empty, a built-in default is
     # used that instructs the model to behave as a precise extraction /
@@ -272,14 +276,18 @@ class Settings(BaseSettings):
                 self.visual_openai_api_key = self.openrouter_openai_api_key
             if not self.retrieval_rerank_api_key:
                 self.retrieval_rerank_api_key = self.openrouter_openai_api_key
-            if not self.task_openai_api_key:
-                self.task_openai_api_key = self.openrouter_openai_api_key
-        # Task LLM falls back to chat LLM when unset.
+        # Task LLM falls back to chat LLM when unset.  This MUST happen
+        # before the OpenRouter fallback below, otherwise a deployment that
+        # uses a different chat provider (with its own CHAT_API_KEY) gets
+        # the OpenRouter key paired with the chat base URL → 401.
         if not self.task_base_url:
             self.task_base_url = self.chat_base_url
         if not self.task_model:
             self.task_model = self.chat_model
         if not self.task_openai_api_key:
             self.task_openai_api_key = self.chat_openai_api_key
+        # Last-resort: OpenRouter key (e.g. chat provider unset entirely).
+        if not self.task_openai_api_key:
+            self.task_openai_api_key = self.openrouter_openai_api_key
 
 settings = Settings()

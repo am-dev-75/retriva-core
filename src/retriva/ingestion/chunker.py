@@ -30,6 +30,87 @@ logger = get_logger(__name__)
 # for the MediaWiki ingestion path.
 _RE_MD_HEADING = re.compile(r"^(#{1,4})\s+(.+)$")
 
+# A markdown table row: starts with an optional '|' and contains at least
+# one more '|'.  Used by the table-aware splitting path.
+_RE_TABLE_ROW = re.compile(r"^\s*\|.*\|")
+
+
+def _is_table_text(text: str) -> bool:
+    """Return True if *text* looks like a markdown table (≥2 pipe rows)."""
+    lines = [l for l in text.splitlines() if l.strip()]
+    if len(lines) < 2:
+        return False
+    rows = sum(1 for l in lines if _RE_TABLE_ROW.match(l))
+    return rows >= max(2, len(lines) // 2)
+
+
+def split_table_rows(text: str, max_chars: int, header_lines: int = 0) -> List[str]:
+    """Split a markdown table into row-boundary-respecting chunks.
+
+    Each chunk contains as many *complete* rows as fit within *max_chars*.
+    A row is never split mid-cell; if a single row exceeds ``max_chars`` it
+    is emitted on its own (its length is respected rather than truncating
+    company data).  When ``header_lines`` > 0 (markdown separator tables),
+    the header rows are repeated at the top of every chunk so each chunk is
+    self-describing.
+
+    This is critical for spreadsheet-derived tables: a row split across
+    chunk boundaries loses its first cells (company name) and pollutes the
+    next chunk with orphaned cell fragments.
+    """
+    lines = text.splitlines()
+    if not lines:
+        return []
+
+    head = lines[:header_lines] if header_lines else []
+    body = lines[header_lines:] if header_lines else lines
+
+    header_prefix = ("\n".join(head) + "\n") if head else ""
+    header_len = len(header_prefix)
+
+    chunks: List[str] = []
+    current: List[str] = []
+    current_len = header_len
+
+    for line in body:
+        line_len = len(line) + 1  # +1 for newline
+        # A lone oversized row is emitted as its own chunk (never split).
+        if line_len + header_len > max_chars:
+            if current:
+                chunks.append(header_prefix + "\n".join(current))
+                current = []
+                current_len = header_len
+            chunks.append(line)
+            continue
+        if current_len + line_len > max_chars and current:
+            chunks.append(header_prefix + "\n".join(current))
+            current = []
+            current_len = header_len
+        current.append(line)
+        current_len += line_len
+
+    if current:
+        chunks.append(header_prefix + "\n".join(current))
+    return chunks or [text]
+
+
+def _count_table_header_lines(text: str) -> int:
+    """Count leading header rows of a markdown table (up to the separator row).
+
+    Markdown tables produced from spreadsheets have the shape::
+
+        | Col A | Col B | ...
+        |---|---|...
+        | data | data | ...
+
+    Returns 0 when no separator row is found in the first few lines.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines[:5]):
+        if re.fullmatch(r"\s*\|[\s:|-]+\|\s*", line):
+            return i + 1
+    return 0
+
 
 def _is_heading(paragraph: str) -> bool:
     """Return True if *paragraph* is a single-line markdown heading."""
@@ -227,8 +308,20 @@ def create_chunks(document: ParsedDocument) -> List[Chunk]:
     final_items: List[Tuple[str, str]] = []  # (section_heading, text)
     for section_heading, para in merged_paragraphs:
         if len(para) > settings.max_chunk_chars:
-            logger.info(f"Paragraph too long ({len(para)} chars), splitting recursively...")
-            split_parts = recursive_split_text(para, settings.max_chunk_chars, settings.chunk_overlap)
+            logger.info(f"Paragraph too long ({len(para)} chars), splitting...")
+            # Table-aware path: spreadsheet-derived markdown tables must be
+            # split at row boundaries, never mid-row (a split row loses its
+            # first cells — e.g. the company name — and the next chunk starts
+            # with orphaned cell fragments).
+            if _is_table_text(para):
+                header_lines = _count_table_header_lines(para)
+                split_parts = split_table_rows(para, settings.max_chunk_chars, header_lines)
+                logger.info(
+                    f"Table paragraph split into {len(split_parts)} row-aligned chunks "
+                    f"(header_lines={header_lines})"
+                )
+            else:
+                split_parts = recursive_split_text(para, settings.max_chunk_chars, settings.chunk_overlap)
             for part in split_parts:
                 final_items.append((section_heading, part))
         else:

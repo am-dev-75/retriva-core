@@ -133,11 +133,10 @@ def _count_documents_for_kb(kb_id: str) -> int:
     """
     try:
         client = get_client()
-        # ``count_documents_store`` already supports a metadata_filter param
-        # that maps to Qdrant payload filters. We pass kb_id via this path
-        # to avoid adding a dedicated ``count_by_kb_id`` helper. Phase 3 may
-        # introduce one if the filter shape outgrows the dict format.
-        return count_documents_store(client, metadata_filter={"kb_id": kb_id})
+        # KB membership lives in user_metadata.kb_ids (a list).  Count by
+        # that field with backward compat for legacy payloads that used
+        # user_metadata.kb_id (singular) or a top-level kb_id field.
+        return count_documents_store(client, metadata_filter={"kb_ids": kb_id})
     except Exception as exc:  # pragma: no cover — defensive
         logger.warning(
             f"document_count_unavailable: kb_id={kb_id} reason={exc!r}"

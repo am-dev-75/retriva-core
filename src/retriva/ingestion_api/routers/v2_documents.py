@@ -146,7 +146,7 @@ def _is_noise_fragment(text: str, *, is_heading: bool = False) -> bool:
 def records_to_parsed_document(
     records: List[CanonicalRecord],
     source_uri: str,
-    metadata: Optional[Dict[str, str]],
+    metadata: Optional[Dict[str, object]],
     language: str = "en",
     page_title: str = "",
 ) -> ParsedDocument:
@@ -366,7 +366,7 @@ def _cleanup_checkpoints(job_id: str) -> None:
 def process_document_v2(
     source_uri: str,
     content_type: Optional[str],
-    user_metadata: Optional[Dict[str, str]],
+    user_metadata: Optional[Dict[str, object]],
     parser_hint: Optional[str],
     job_id: str,
     temp_path: Optional[str] = None,
@@ -726,6 +726,37 @@ def process_document_v2(
                 )
                 manager.set_stage_detail(job_id, f"graph indexing failed: {graph_err}", 100)
                 _sync_state()
+
+        # ── EXTENSION HOOK: relational company sync (optional) ─────────
+        # Extensions may register a post-indexing hook (capability
+        # ``post_ingest_hook``) to persist structured records extracted
+        # from the document's chunks.  Used by the CRM Assistant to
+        # upsert companies from dept_sales_potential_customer-tagged
+        # documents into the relational store.  Failures are isolated:
+        # they never fail the ingestion job.
+        try:
+            _reg = registry  # reuse the pipeline's registry (already loaded)
+            if "post_ingest_hook" in _reg.list_capabilities():
+                hook_provider = _reg.get("post_ingest_hook")
+                hook = getattr(hook_provider, "sync", None) or getattr(
+                    hook_provider, "sync_companies_from_document", None
+                )
+                if hook is not None:
+                    hook_result = hook(
+                        kb_id=kb_id,
+                        collection_name=get_collection_name(),
+                        doc_id=doc_id or "",
+                        user_metadata=user_metadata,
+                        chunk_texts=[c.text for c in chunks],
+                    )
+                    logger.info(
+                        f"post_ingest_hook_completed: job={job_id} "
+                        f"result={hook_result}"
+                    )
+        except Exception as hook_err:
+            logger.warning(
+                f"Job {job_id}: post_ingest_hook failed (non-fatal): {hook_err}"
+            )
 
         # Finalise the catalog record
         if doc_id:
@@ -1114,6 +1145,9 @@ async def upload_document_v2(
     catalog entry blocking re-upload.
     """
     # KB enforcement (SDD): unknown kb_id → 404 before any I/O.
+    # When the Gateway does not send a top-level ``kb_id`` Form field
+    # (default ``"default"``), resolve it from ``user_metadata.kb_ids``
+    # — the first KB in the list is used as the primary dedup namespace.
     require_kb_exists(kb_id)
     # -- 1. Parse metadata --------------------------------------------------
     parsed_metadata = None
@@ -1126,6 +1160,17 @@ async def upload_document_v2(
             validate_user_metadata(parsed_metadata)
         except UserMetadataValidationError as e:
             raise HTTPException(status_code=422, detail=e.details)
+
+    # Resolve kb_id from user_metadata.kb_ids when the Form field is the
+    # default and metadata carries an explicit KB list.
+    if kb_id == "default" and parsed_metadata:
+        meta_kb_ids = parsed_metadata.get("kb_ids")
+        if isinstance(meta_kb_ids, list) and meta_kb_ids:
+            kb_id = meta_kb_ids[0]
+            require_kb_exists(kb_id)
+        elif isinstance(meta_kb_ids, str) and meta_kb_ids:
+            kb_id = meta_kb_ids
+            require_kb_exists(kb_id)
 
     # -- 2. Read bytes + compute hash BEFORE saving to temp -----------------
     file_bytes = await file.read()

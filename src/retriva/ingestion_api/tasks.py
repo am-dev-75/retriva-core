@@ -154,7 +154,7 @@ def _register_tasks(app):
         job_id: str,
         source_uri: str,
         content_type: Optional[str],
-        user_metadata: Optional[Dict[str, str]],
+        user_metadata: Optional[Dict[str, object]],
         parser_hint: Optional[str],
         temp_path: Optional[str] = None,
         doc_id: Optional[str] = None,
@@ -173,6 +173,13 @@ def _register_tasks(app):
         """
         from retriva.ingestion_api.routers.v2_documents import process_document_v2
         from retriva.indexing.qdrant_store import set_collection_name, _collection_name_ctx, DEFAULT_COLLECTION_NAME
+
+        # Load extensions in the worker process. The API process loads them
+        # at startup, but Celery workers are separate processes — without
+        # this, extension capabilities (e.g. the CRM post_ingest_hook) are
+        # missing and post-indexing hooks silently don't run.
+        from retriva.registry import CapabilityRegistry
+        CapabilityRegistry().load_extensions()
 
         logger.info(f"Celery task started: job_id={job_id}, source={source_uri}, collection={collection_name}")
         
@@ -265,7 +272,7 @@ def _register_tasks(app):
         self,
         job_id: str,
         staged_dir: str,
-        user_metadata: Optional[Dict[str, str]],
+        user_metadata: Optional[Dict[str, object]],
         kb_id: str,
         collection_name: Optional[str] = None,
     ):
