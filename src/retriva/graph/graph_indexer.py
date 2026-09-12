@@ -125,13 +125,44 @@ class GraphIndexer:
                 return {"skipped": True, "reason": "cancelled"}
 
             # 2. Extract candidates
-            mutation = self.extractor.extract(
-                chunks=chunks,
-                profile_id=profile_id,
-                tenant_id=tenant_id,
-                kb_id=kb_id,
-                source_document_id=doc_id,
-            )
+            try:
+                mutation = self.extractor.extract(
+                    chunks=chunks,
+                    profile_id=profile_id,
+                    tenant_id=tenant_id,
+                    kb_id=kb_id,
+                    source_document_id=doc_id,
+                )
+            except Exception as ext_err:
+                # Extraction failure (truncated output, schema-invalid JSON,
+                # provider error).  NEVER silently convert malformed output
+                # into a valid empty graph: report it explicitly with metrics.
+                from retriva.graph.extraction import ExtractionFailure
+                metrics = getattr(ext_err, "metrics", {}) or {}
+                logger.error(
+                    f"GraphIndexer: extraction failed for doc={doc_id}: "
+                    f"{getattr(ext_err, 'kind', 'error')} — "
+                    f"{getattr(ext_err, 'detail', ext_err)}"
+                )
+                return {
+                    "skipped": False,
+                    "entities": 0,
+                    "assertions": 0,
+                    "relationships": 0,
+                    "profile": profile_id,
+                    "extraction_failed": True,
+                    "failure_kind": getattr(ext_err, "kind", "error"),
+                    "failure_detail": str(getattr(ext_err, "detail", ext_err))[:300],
+                    "extraction_metrics": {
+                        k: v for k, v in metrics.items()
+                        if k not in ("warnings",)
+                    },
+                    "warnings": [
+                        "Graph entity extraction failed: "
+                        f"{getattr(ext_err, 'kind', 'error')} — "
+                        "no graph data was written for this document."
+                    ],
+                }
 
             if cancel_check and cancel_check():
                 return {"skipped": True, "reason": "cancelled"}
@@ -253,6 +284,8 @@ class GraphIndexer:
                 "assertions": len(resolved_assertions),
                 "relationships": len(relationships),
                 "profile": profile_id,
+                "extraction_metrics": getattr(self.extractor, "last_metrics", {})
+                if hasattr(self.extractor, "last_metrics") else {},
             }
 
         except Exception as e:
