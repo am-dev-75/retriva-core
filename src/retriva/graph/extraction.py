@@ -254,6 +254,14 @@ class DefaultEntityExtractor:
 
         extraction, metrics = self._extract_with_retries(text_block)
         self.last_metrics = metrics
+        if input_truncated:
+            bounded_warning = (
+                "Graph extraction analyzed a bounded portion of this "
+                "document. Relevant entities or relationships outside the "
+                "selected content may not have been extracted."
+            )
+            metrics.setdefault("warnings", []).append(bounded_warning)
+            metrics["input_truncated"] = True
         if metrics.get("warnings"):
             for w in metrics["warnings"]:
                 logger.warning(

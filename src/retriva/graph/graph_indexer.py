@@ -278,14 +278,18 @@ class GraphIndexer:
                 f"{len(relationships)} relationships"
             )
 
+            ext_metrics = getattr(self.extractor, "last_metrics", {}) \
+                if hasattr(self.extractor, "last_metrics") else {}
             return {
                 "skipped": False,
                 "entities": len(resolved_entities),
                 "assertions": len(resolved_assertions),
                 "relationships": len(relationships),
                 "profile": profile_id,
-                "extraction_metrics": getattr(self.extractor, "last_metrics", {})
-                if hasattr(self.extractor, "last_metrics") else {},
+                "extraction_metrics": {
+                    k: v for k, v in ext_metrics.items() if k != "warnings"
+                },
+                "warnings": list(ext_metrics.get("warnings", [])),
             }
 
         except Exception as e:
