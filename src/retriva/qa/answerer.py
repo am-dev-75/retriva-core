@@ -292,6 +292,38 @@ def ask_question_without_retrieval(question: str) -> str:
     )
 
 
+def chat_completion_with_tools(
+    messages: List[Dict[str, Any]],
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[Any] = None,
+) -> Any:
+    """Raw chat-completion pass-through for the Gateway agent loop.
+
+    Forwards the FULL message list (system/user/assistant/tool) plus the
+    OpenAI function-calling parameters to the chat LLM and returns the raw
+    provider response object.  Unlike :func:`ask_question`, this performs NO
+    retrieval, NO prompt building, and NO citation processing — the agent
+    loop owns the conversation; Core is a pure LLM proxy for this path.
+
+    Used by the Gateway agent loop (ADR-0001).  Plain chat callers are
+    unaffected.
+    """
+    client = OpenAI(api_key=settings.chat_openai_api_key, base_url=settings.chat_base_url)
+    kwargs: dict = {
+        "model": settings.chat_model,
+        "messages": messages,
+        "temperature": settings.chat_temperature,
+        "top_p": settings.chat_top_p,
+        "max_tokens": settings.chat_max_tokens,
+        **_chat_extra_kwargs(),
+    }
+    if tools:
+        kwargs["tools"] = tools
+    if tool_choice is not None:
+        kwargs["tool_choice"] = tool_choice
+    return client.chat.completions.create(**kwargs)
+
+
 DEFAULT_TASK_SYSTEM_PROMPT = (
     "You are a precise data extraction and analysis assistant. "
     "Your role is to extract structured information, classify items, "

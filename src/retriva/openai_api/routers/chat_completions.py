@@ -41,7 +41,8 @@ from retriva.qa.answerer import (
     ask_question_streaming_async,
     ask_question_without_retrieval,
     ask_question_streaming_without_retrieval,
-    ask_question_streaming_without_retrieval_async
+    ask_question_streaming_without_retrieval_async,
+    chat_completion_with_tools,
 )
 from retriva.config import settings
 from retriva.logger import get_logger
@@ -548,6 +549,15 @@ async def _handle_streaming(
 
 @router.post("/v1/chat/completions")
 async def create_chat_completion(request: ChatCompletionRequest):
+    # --- Agent-loop pass-through (ADR-0001) ---
+    # When the caller sends `tools`, Core acts as a pure LLM proxy: the full
+    # message list (including tool results) is forwarded to the chat LLM
+    # with function-calling parameters, and the raw tool_calls (if any) are
+    # returned.  No retrieval, no prompt building, no citation envelope.
+    # Plain chat callers (no tools) are completely unaffected.
+    if request.tools:
+        return await _handle_agent_completion(request)
+
     question = _extract_user_question(request)
     bypass_rag = question.startswith("### Task:")
     
@@ -566,3 +576,74 @@ async def create_chat_completion(request: ChatCompletionRequest):
         return await _handle_streaming(request, question, bypass_rag=bypass_rag)
     else:
         return await _handle_non_streaming(request, question, bypass_rag=bypass_rag)
+
+
+async def _handle_agent_completion(request: ChatCompletionRequest) -> ChatCompletionResponse:
+    """Agent-loop pass-through: full message list + tools to the LLM."""
+    from starlette.concurrency import run_in_threadpool
+    messages = [
+        {
+            "role": m.role,
+            "content": m.content,
+            **({"tool_calls": [tc.model_dump() for tc in m.tool_calls]}
+               if m.tool_calls else {}),
+            **({"tool_call_id": m.tool_call_id} if m.tool_call_id else {}),
+            **({"name": m.name} if m.name else {}),
+        }
+        for m in request.messages
+    ]
+    try:
+        response = await run_in_threadpool(
+            chat_completion_with_tools,
+            messages,
+            request.tools,
+            request.tool_choice,
+        )
+    except Exception as e:
+        logger.error(f"Agent completion error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM agent completion failed: {e}",
+        )
+    if not response.choices:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM returned an empty response.",
+        )
+    message = response.choices[0].message
+    tool_calls = None
+    if getattr(message, "tool_calls", None):
+        tool_calls = [
+            ToolCall(
+                id=tc.id,
+                type=getattr(tc, "type", "function") or "function",
+                function=ToolCallFunction(
+                    name=tc.function.name,
+                    arguments=tc.function.arguments,
+                ),
+            )
+            for tc in message.tool_calls
+        ]
+    return ChatCompletionResponse(
+        model="retriva",
+        choices=[
+            ChatChoice(
+                index=0,
+                message=ChatMessage(
+                    role="assistant",
+                    content=message.content or "",
+                    tool_calls=tool_calls,
+                ),
+                # OpenAI semantics: tool_calls present => not finished.
+                finish_reason=(
+                    "tool_calls" if tool_calls else "stop"
+                ),
+            )
+        ],
+        usage=UsageInfo(
+            prompt_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
+            completion_tokens=getattr(response.usage, "completion_tokens", 0) or 0,
+            total_tokens=getattr(response.usage, "total_tokens", 0) or 0,
+        ),
+        sources=[],
+    )

@@ -62,10 +62,13 @@ class ToolCall(BaseModel):
     function: ToolCallFunction
 
 class ChatMessage(BaseModel):
-    role: str = Field(..., description="One of: system, user, assistant")
+    role: str = Field(..., description="One of: system, user, assistant, tool")
     content: str = Field(..., description="Message text")
     metadata: Optional[MessageMetadata] = None
     tool_calls: Optional[List[ToolCall]] = None
+    # For role == "tool" (agent loop tool results):
+    tool_call_id: Optional[str] = None
+    name: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +85,15 @@ class ChatCompletionRequest(BaseModel):
     metadata_filters: Optional[List[dict]] = Field(default_factory=list, description="Advanced metadata filters (v2)")
     metadata_filter_mode: str = Field("soft", description="Filtering mode (soft or hard)")
     user_metadata_filter: Optional[Dict[str, str]] = Field(None, description="[DEPRECATED] Simple metadata filter")
+    # --- Function calling (agent loop) ---
+    # Accepted and forwarded to the chat LLM when present.  Callers that do
+    # not send tools are unaffected (plain RAG chat).
+    tools: Optional[List[dict]] = Field(
+        None, description="OpenAI function-calling tool definitions (agent loop)"
+    )
+    tool_choice: Optional[object] = Field(
+        None, description="OpenAI tool_choice ('auto' | 'none' | specific)"
+    )
 
 
 # ---------------------------------------------------------------------------
