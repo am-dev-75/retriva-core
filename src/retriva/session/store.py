@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -363,6 +364,37 @@ class SessionStore:
                     (artifact_id, session_id),
                 )
                 return cur.rowcount > 0
+
+    def list_all_artifacts(
+        self,
+        *,
+        include_expired: bool = False,
+        limit: int = 500,
+    ) -> List[SessionArtifactRecord]:
+        """List artifacts across ALL sessions (most recent first).
+
+        Powers the artifact index page.  Expired/deleted artifacts are
+        excluded unless ``include_expired`` is set.
+        """
+        now_iso = datetime.now(timezone.utc).isoformat()
+        query = "SELECT * FROM session_artifacts"
+        if not include_expired:
+            query += " WHERE status NOT IN (?, ?) AND expiration_time > ?"
+        query += " ORDER BY created_at DESC LIMIT ?"
+        with self._connect() as conn:
+            if include_expired:
+                rows = conn.execute(query, (limit,)).fetchall()
+            else:
+                rows = conn.execute(
+                    query,
+                    (
+                        ArtifactStatus.EXPIRED.value,
+                        ArtifactStatus.DELETED.value,
+                        now_iso,
+                        limit,
+                    ),
+                ).fetchall()
+        return [self._row_to_artifact(r) for r in rows]
 
     def list_expired_artifacts(self, now_iso: str) -> List[SessionArtifactRecord]:
         with self._connect() as conn:

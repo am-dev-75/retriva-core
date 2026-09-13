@@ -128,6 +128,10 @@ class SessionArtifactService:
     def list(self, session_id: str) -> List[SessionArtifactRecord]:
         return self._store.list_artifacts(session_id)
 
+    def list_all(self, *, limit: int = 500) -> List[SessionArtifactRecord]:
+        """List ready artifacts across ALL sessions (most recent first)."""
+        return self._store.list_all_artifacts(limit=limit)
+
     def file_path(self, record: SessionArtifactRecord) -> Path:
         return self._base_dir / record.storage_ref
 
