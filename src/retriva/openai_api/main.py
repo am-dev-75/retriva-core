@@ -17,6 +17,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from retriva.openai_api.routers import chat_completions, models, internal
 from retriva.ingestion_api.routers import v2_sessions
+# Register parser capabilities (parser:default / parser:docling) needed by
+# the session attachment upload/parse endpoints.
+import retriva.ingestion.parser_router  # noqa: F401
+import retriva.ingestion.docling_parser  # noqa: F401
 from retriva.indexing.qdrant_store import init_collection, get_client
 from retriva.logger import get_logger
 
