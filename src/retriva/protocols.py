@@ -33,6 +33,22 @@ class Retriever(Protocol):
 
 
 @runtime_checkable
+class Reranker(Protocol):
+    """Re-rank retrieved chunks by relevance (two-stage retrieval).
+
+    The domain contract is provider-neutral: implementations receive the
+    retrieved chunk dicts and return the SAME dicts reordered, preserving
+    all metadata (chunk IDs, source IDs, citations, retrieval scores);
+    only ``_score`` may be overwritten with the provider's relevance
+    score. The transport (OpenRouter/Cohere-compatible, Amazon Bedrock,
+    ...) is selected globally via Retriva's settings system — see
+    ``retriva.qa.reranking``.
+    """
+
+    def rerank(self, query: str, chunks: List[Dict], top_n: int) -> List[Dict]: ...
+
+
+@runtime_checkable
 class Chunker(Protocol):
     """Split a parsed document into indexable chunks."""
 

@@ -29,5 +29,24 @@ async def get_profiler_logs():
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Profiler is disabled."
         )
-    
+
     return get_recent_logs()
+
+
+# ---------------------------------------------------------------------------
+# Reranking status (global settings + provider health + metrics).
+# Read-only observability surface; secret values are never included
+# (RerankProviderConfig.public_dict() reports only api_key_set).
+# ---------------------------------------------------------------------------
+
+reranker_router = APIRouter(prefix="/internal/reranker", tags=["internal"])
+
+@reranker_router.get("/status")
+async def get_reranker_status():
+    """
+    Expose the effective global reranking configuration (secrets redacted),
+    provider health and in-process metrics.
+    """
+    from retriva.qa.reranking import get_reranker_status as _status
+
+    return _status()

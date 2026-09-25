@@ -87,9 +87,9 @@ class TestDefaultRerankerReorders:
 class TestRerankerDisabled:
     def test_rerank_disabled_returns_unchanged(self, sample_chunks):
         """When reranker is disabled, chunks should pass through unchanged."""
-        from retriva.qa.answerer import _rerank_if_enabled
+        from retriva.qa.retriever import _rerank_if_enabled
 
-        with patch("retriva.qa.answerer.settings") as mock_ans_settings:
+        with patch("retriva.qa.retriever.settings") as mock_ans_settings:
             mock_ans_settings.enable_retrieval_reranking = False
             result = _rerank_if_enabled("query", sample_chunks)
 
@@ -283,7 +283,7 @@ class TestBatchSplitting:
 class TestCandidateSelection:
     def test_candidate_slicing_in_answerer(self):
         """_rerank_if_enabled should slice chunks to retrieval_rerank_candidates."""
-        from retriva.qa.answerer import _rerank_if_enabled
+        from retriva.qa.retriever import _rerank_if_enabled
 
         chunks = [{"text": f"chunk{i}", "page_title": f"P{i}"} for i in range(50)]
         captured_chunks = []
@@ -293,11 +293,11 @@ class TestCandidateSelection:
                 captured_chunks.extend(chunks)
                 return chunks[:top_n]
 
-        with patch("retriva.qa.answerer.settings") as ms:
+        with patch("retriva.qa.retriever.settings") as ms:
             ms.enable_retrieval_reranking = True
             ms.retrieval_rerank_candidates = 20
             ms.retrieval_rerank_top_n = 10
-            with patch("retriva.qa.answerer.CapabilityRegistry") as mock_reg:
+            with patch("retriva.qa.retriever.CapabilityRegistry") as mock_reg:
                 mock_reg.return_value.get_instance.return_value = MockReranker()
                 result = _rerank_if_enabled("query", chunks)
 
@@ -307,7 +307,7 @@ class TestCandidateSelection:
 
     def test_candidate_slicing_skipped_when_zero(self):
         """retrieval_rerank_candidates <= 0 should skip slicing."""
-        from retriva.qa.answerer import _rerank_if_enabled
+        from retriva.qa.retriever import _rerank_if_enabled
 
         chunks = [{"text": f"chunk{i}", "page_title": f"P{i}"} for i in range(50)]
         captured_chunks = []
@@ -317,11 +317,11 @@ class TestCandidateSelection:
                 captured_chunks.extend(chunks)
                 return chunks[:top_n]
 
-        with patch("retriva.qa.answerer.settings") as ms:
+        with patch("retriva.qa.retriever.settings") as ms:
             ms.enable_retrieval_reranking = True
             ms.retrieval_rerank_candidates = 0  # disabled
             ms.retrieval_rerank_top_n = 10
-            with patch("retriva.qa.answerer.CapabilityRegistry") as mock_reg:
+            with patch("retriva.qa.retriever.CapabilityRegistry") as mock_reg:
                 mock_reg.return_value.get_instance.return_value = MockReranker()
                 result = _rerank_if_enabled("query", chunks)
 

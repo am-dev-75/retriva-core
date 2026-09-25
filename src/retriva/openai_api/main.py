@@ -41,6 +41,22 @@ async def lifespan(app: FastAPI):
     from retriva.registry import CapabilityRegistry
     CapabilityRegistry().load_extensions()
 
+    # Validate the global reranking configuration (log-and-continue,
+    # matching the Qdrant init convention; the standard reranker fallback
+    # policy applies at request time).
+    try:
+        from retriva.qa.reranking import refresh_reranker_health, validate_rerank_config
+        reranker_issues = validate_rerank_config()
+        refresh_reranker_health()
+        for issue in reranker_issues:
+            message = f"Reranker config issue: {issue['message']}"
+            if issue["level"] == "error":
+                logger.error(message)
+            else:
+                logger.warning(message)
+    except Exception as e:
+        logger.error(f"Reranker validation failed during startup: {e}")
+
     # Mount extension-provided API routers (e.g. CRM Assistant).
     try:
         from retriva.registry import CapabilityRegistry as _Reg
@@ -113,4 +129,5 @@ app.add_middleware(
 app.include_router(chat_completions.router)
 app.include_router(models.router)
 app.include_router(internal.router)
+app.include_router(internal.reranker_router)
 app.include_router(v2_sessions.router)

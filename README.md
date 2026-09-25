@@ -202,6 +202,8 @@ Retriva is designed to be modular, allowing users to customize the system to the
 
 Retriva is designed to be model-agnostic, allowing users to choose the models that best suit their needs. This is achieved simply by changing environment variables specifying the desired models.
 
+This also applies to the **reranking** stage: the reranking provider (OpenRouter/Cohere-compatible or Amazon Bedrock) and model are selected globally through the same environment variables, and the choice applies to every knowledge base, user, and customer. See the [Reranking guide](docs/reranking.md).
+
 ### Frontend agnosticism
 
 Although Retriva comes with a web frontend called [Retriva WebUI](https://github.com/am-dev-75/retriva-webui), it is designed to be frontend-agnostic. This allows users to implement a different frontend that best suits their needs if necessary.

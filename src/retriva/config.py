@@ -121,10 +121,29 @@ class Settings(BaseSettings):
     retrieval_metadata_boost: float = 0.1
     
     # Retrieval re-ranking (two-stage)
+    #
+    # The reranker is GLOBAL: one provider + one model serve every knowledge
+    # base, retrieval operation, user, and customer. There is deliberately no
+    # per-KB reranker configuration.
     enable_retrieval_reranking: bool = True
+    # Provider selection (global). Empty (default) = legacy behavior: the
+    # Cohere-compatible /rerank transport ("openrouter") — unchanged for
+    # existing deployments. Supported: "openrouter" (alias "cohere") and
+    # "bedrock" (Amazon Bedrock Rerank).
+    retrieval_rerank_provider: str = ""
     retrieval_rerank_model: str = "cohere/rerank-v3.5"
     retrieval_rerank_base_url: str = "https://openrouter.ai/api/v1"
     retrieval_rerank_api_key: Optional[str] = None
+    # Amazon Bedrock (used when retrieval_rerank_provider == "bedrock").
+    # Region falls back to AWS_REGION / AWS_DEFAULT_REGION. Credentials are
+    # NOT stored here: boto3's standard chain applies (AWS_* env vars,
+    # shared config files, or the workload IAM role — recommended).
+    retrieval_rerank_aws_region: str = ""
+    # Transport tuning shared by all providers (defaults match the legacy
+    # hard-coded retry/timeout policy).
+    retrieval_rerank_timeout: float = 30.0
+    retrieval_rerank_max_retries: int = 2
+    retrieval_rerank_retry_base_delay: float = 1.0
     retrieval_rerank_candidates: int = 100
     retrieval_rerank_top_n: int = 30
     retrieval_rerank_batch_size: int = 100
@@ -274,7 +293,9 @@ class Settings(BaseSettings):
                 self.chat_openai_api_key = self.openrouter_openai_api_key
             if not self.visual_openai_api_key:
                 self.visual_openai_api_key = self.openrouter_openai_api_key
-            if not self.retrieval_rerank_api_key:
+            # The rerank key is only meaningful for OpenAI-compatible
+            # Cohere-style providers; Bedrock uses the AWS credential chain.
+            if not self.retrieval_rerank_api_key and self._rerank_provider_name() != "bedrock":
                 self.retrieval_rerank_api_key = self.openrouter_openai_api_key
         # Task LLM falls back to chat LLM when unset.  This MUST happen
         # before the OpenRouter fallback below, otherwise a deployment that
@@ -289,5 +310,9 @@ class Settings(BaseSettings):
         # Last-resort: OpenRouter key (e.g. chat provider unset entirely).
         if not self.task_openai_api_key:
             self.task_openai_api_key = self.openrouter_openai_api_key
+
+    def _rerank_provider_name(self) -> str:
+        """Normalized rerank provider selection ('' → default 'openrouter')."""
+        return (self.retrieval_rerank_provider or "").strip().lower() or "openrouter"
 
 settings = Settings()

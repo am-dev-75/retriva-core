@@ -16,30 +16,69 @@
 Default re-ranker for Retriva OSS — two-stage retrieval.
 
 Stage 1 (vector search) produces broad recall candidates from Qdrant.
-Stage 2 (this module) re-scores those candidates with a cross-encoder
-model and returns only the top-N most relevant chunks to the query.
+Stage 2 (this module) re-scores those candidates and returns only the
+top-N most relevant chunks to the query.
 
-The re-ranker calls the Cohere-compatible ``/rerank`` endpoint via
-``httpx``.  This is supported natively by OpenRouter, Cohere, and
-any provider exposing the same contract.
+Provider model
+--------------
+This module implements the ``reranker`` capability (see the ``Reranker``
+protocol in ``retriva.protocols``) as a provider-neutral adapter: the
+transport is selected GLOBALLY via ``RETRIEVAL_RERANK_PROVIDER`` in
+Retriva's single settings system and applies to every knowledge base,
+retrieval operation, user, and customer. Supported providers live in
+``retriva.qa.reranking``:
 
-Override path for Retriva Pro:
-    Register a custom ``reranker`` capability at priority > 100
-    via the CapabilityRegistry.
+* ``openrouter`` (default) — Cohere-compatible ``/rerank`` endpoint via
+  ``httpx``, supported natively by OpenRouter, Cohere, and any provider
+  exposing the same contract (legacy behavior, unchanged).
+* ``bedrock`` — Amazon Bedrock Rerank via ``boto3``.
+
+Override paths for Retriva Pro:
+    * Replace the whole capability: register a custom ``reranker``
+      capability at priority > 100 via the CapabilityRegistry.
+    * Add a transport: ``register_rerank_provider(name, factory)`` in
+      ``retriva.qa.reranking.factory`` and select it globally.
+
+Error and fallback policy (unchanged): on any provider failure — transport
+errors, unknown provider names, AND malformed/unusable provider output —
+the original chunks are returned truncated to *top_n* in their original
+(vector-similarity) order, with a warning and health/metrics updates.
 """
 
 import time
 import httpx
-from typing import Dict, List
+from typing import Any, Dict, List, Tuple
 
 from retriva.config import settings
 from retriva.logger import get_logger
+from retriva.qa.reranking.base import RerankProviderError
+from retriva.qa.reranking.factory import get_reranker_provider
+from retriva.qa.reranking.health import reranker_health
+from retriva.qa.reranking.metrics import reranker_metrics
 
 logger = get_logger(__name__)
 
-MAX_RETRIES = 2
-RETRY_BASE_DELAY = 1.0  # seconds
-REQUEST_TIMEOUT = 30.0   # seconds
+
+def _coerce_result(result: Any) -> Tuple[int, float]:
+    """Validate one provider result entry.
+
+    Returns ``(index, relevance_score)`` or ``(None, 0.0)`` when the entry
+    is malformed. Hardening: provider output is external input — a broken
+    provider (or Pro extension) must degrade to the fallback policy, never
+    raise out of :meth:`DefaultReranker.rerank` or poison downstream
+    ``_score`` sorting with non-numeric values.
+    """
+    if not isinstance(result, dict):
+        return None, 0.0
+    idx = result.get("index")
+    # bool is an int subclass — reject it explicitly.
+    if isinstance(idx, bool) or not isinstance(idx, int):
+        return None, 0.0
+    try:
+        score = float(result.get("relevance_score", 0.0))
+    except (TypeError, ValueError):
+        return None, 0.0
+    return idx, score
 
 
 def _call_rerank_api(
@@ -57,10 +96,9 @@ def _call_rerank_api(
     Raises on non-transient errors; retries on transient ones.
     """
     url = f"{settings.retrieval_rerank_base_url.rstrip('/')}/rerank"
-    headers = {
-        "Authorization": f"Bearer {settings.retrieval_rerank_api_key}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Content-Type": "application/json"}
+    if settings.retrieval_rerank_api_key:
+        headers["Authorization"] = f"Bearer {settings.retrieval_rerank_api_key}"
     payload = {
         "model": settings.retrieval_rerank_model,
         "query": query,
@@ -68,25 +106,40 @@ def _call_rerank_api(
         "top_n": top_n,
     }
 
-    for attempt in range(1, MAX_RETRIES + 1):
+    max_retries = max(1, settings.retrieval_rerank_max_retries)
+    retry_base_delay = settings.retrieval_rerank_retry_base_delay
+    request_timeout = settings.retrieval_rerank_timeout
+
+    for attempt in range(1, max_retries + 1):
         try:
-            with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            with httpx.Client(timeout=request_timeout) as client:
                 response = client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
-                data = response.json()
+                try:
+                    data = response.json()
+                except ValueError as e:
+                    raise RuntimeError(
+                        f"Reranker returned a non-JSON payload: {e}"
+                    ) from e
+                if not isinstance(data, dict):
+                    raise RuntimeError(
+                        f"Reranker returned unexpected payload type "
+                        f"{type(data).__name__} (expected an object with "
+                        f"a 'results' list)."
+                    )
                 return data.get("results", [])
 
         except (httpx.TimeoutException, httpx.ConnectError) as e:
-            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-            if attempt < MAX_RETRIES:
+            delay = retry_base_delay * (2 ** (attempt - 1))
+            if attempt < max_retries:
                 logger.warning(
-                    f"Reranker attempt {attempt}/{MAX_RETRIES} failed "
+                    f"Reranker attempt {attempt}/{max_retries} failed "
                     f"({type(e).__name__}). Retrying in {delay:.1f}s..."
                 )
                 time.sleep(delay)
             else:
                 raise RuntimeError(
-                    f"Reranker failed after {MAX_RETRIES} attempts: {e}"
+                    f"Reranker failed after {max_retries} attempts: {e}"
                 ) from e
 
         except httpx.HTTPStatusError as e:
@@ -97,16 +150,16 @@ def _call_rerank_api(
                     f"{e.response.text[:500]}"
                 ) from e
             # Server errors (5xx) — retry
-            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-            if attempt < MAX_RETRIES:
+            delay = retry_base_delay * (2 ** (attempt - 1))
+            if attempt < max_retries:
                 logger.warning(
-                    f"Reranker attempt {attempt}/{MAX_RETRIES} got "
+                    f"Reranker attempt {attempt}/{max_retries} got "
                     f"{e.response.status_code}. Retrying in {delay:.1f}s..."
                 )
                 time.sleep(delay)
             else:
                 raise RuntimeError(
-                    f"Reranker failed after {MAX_RETRIES} attempts: {e}"
+                    f"Reranker failed after {max_retries} attempts: {e}"
                 ) from e
 
 
@@ -155,14 +208,24 @@ def _rerank_batched(
 
 
 class DefaultReranker:
-    """OSS default reranker — cross-encoder via Cohere-compatible /rerank API."""
+    """
+    OSS default reranker — provider-neutral two-stage re-ranking.
+
+    Delegates the transport to the globally configured provider
+    (``RETRIEVAL_RERANK_PROVIDER``; default ``openrouter``) resolved
+    through the provider factory, which supports runtime reload when the
+    global settings change.
+    """
 
     def rerank(self, query: str, chunks: List[Dict], top_n: int) -> List[Dict]:
         """
         Re-rank *chunks* by relevance to *query* and return the top *top_n*.
 
         Each chunk must have a ``"text"`` key.  The original chunk dicts
-        are returned (not copies), preserving all metadata.
+        are returned (not copies), preserving all metadata — chunk IDs,
+        source IDs, citations and retrieval scores stay attached; only
+        ``_score`` is overwritten with the provider's relevance score so
+        downstream sorting/diversity filters use the reranked ordering.
 
         On failure the original chunks are returned truncated to *top_n*
         in their original (vector-similarity) order.
@@ -170,45 +233,93 @@ class DefaultReranker:
         if not chunks:
             return chunks
 
-        # Clamp top_n to available chunk count
+        # Clamp top_n to available chunk count; a non-positive top_n means
+        # "nothing requested" — return an empty selection without a call.
         effective_top_n = min(top_n, len(chunks))
+        if effective_top_n <= 0:
+            return []
 
         # Extract and truncate text for the API call
         documents = [c.get("text", "") for c in chunks]
         documents = _truncate_documents(documents, settings.retrieval_rerank_max_length)
 
+        started = time.perf_counter()
+        provider_name = None
         try:
-            results = _rerank_batched(
-                query,
-                documents,
-                effective_top_n,
-                settings.retrieval_rerank_batch_size,
-            )
+            provider = get_reranker_provider()
+            provider_name = provider.name
+            reranker_metrics.inc_call(provider.name)
+            reranker_metrics.add_documents(len(documents))
+            results = provider.rank(query, documents, effective_top_n)
+            if not isinstance(results, list):
+                raise RerankProviderError(
+                    f"Provider returned invalid result type "
+                    f"{type(results).__name__} (expected a list)."
+                )
         except Exception as e:
+            duration_ms = (time.perf_counter() - started) * 1000
+            reranker_metrics.observe_latency(duration_ms)
+            reranker_metrics.inc_failure(provider_name)
+            reranker_metrics.inc_fallback()
+            reranker_health.record_failure(provider_name, str(e))
             logger.warning(
                 f"Reranker failed, falling back to vector-search order: {e}"
             )
             return chunks[:effective_top_n]
 
+        duration_ms = (time.perf_counter() - started) * 1000
+        reranker_metrics.observe_latency(duration_ms)
+
         if not results:
+            reranker_metrics.inc_fallback()
+            reranker_health.record_fallback("provider returned empty results")
             logger.warning("Reranker returned empty results, using vector-search order.")
             return chunks[:effective_top_n]
 
-        # Map results back to original chunk dicts by index
+        # Map results back to original chunk dicts by index. Harden: clamp
+        # to effective_top_n, skip malformed/out-of-bounds/duplicate entries.
         reranked = []
+        seen_indices = set()
         for r in results:
-            idx = r.get("index")
-            if idx is not None and 0 <= idx < len(chunks):
-                chunk = chunks[idx]
-                # Sync _score so that subsequent sorting/diversity filters use the reranked score
-                chunk["_score"] = r.get("relevance_score", 0.0)
-                reranked.append(chunk)
-            else:
+            idx, score = _coerce_result(r)
+            if idx is None:
+                logger.warning(
+                    f"Reranker returned a malformed result {r!r} — skipping."
+                )
+                continue
+            if not 0 <= idx < len(chunks):
                 logger.warning(f"Reranker returned out-of-bounds index {idx}, skipping.")
+                continue
+            if idx in seen_indices:
+                logger.warning(f"Reranker returned duplicate index {idx}, skipping.")
+                continue
+            seen_indices.add(idx)
+            chunk = chunks[idx]
+            # Sync _score so that subsequent sorting/diversity filters use the reranked score
+            chunk["_score"] = score
+            reranked.append(chunk)
+            if len(reranked) >= effective_top_n:
+                break
 
+        if not reranked:
+            # Provider "succeeded" but returned nothing usable — this is a
+            # fallback situation, not a success.
+            reranker_metrics.inc_fallback()
+            reranker_health.record_fallback("provider returned no usable results")
+            logger.warning(
+                "Reranker returned no usable results, using vector-search order."
+            )
+            return chunks[:effective_top_n]
+
+        reranker_metrics.inc_success(provider.name)
+        reranker_health.record_success(provider.name)
+
+        # Top score comes from the first VALID mapped entry (guaranteed
+        # numeric) — results[0] itself may be a malformed entry we skipped.
+        top_score_str = f"{reranked[0]['_score']:.4f}"
         logger.info(
-            f"Reranker: {len(chunks)} candidates → {len(reranked)} results "
-            f"(top score: {results[0].get('relevance_score', 'N/A'):.4f})"
+            f"Reranker[{provider.name}]: {len(chunks)} candidates → {len(reranked)} "
+            f"results in {duration_ms:.0f}ms (top score: {top_score_str})"
         )
         return reranked
 

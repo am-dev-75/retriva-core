@@ -16,6 +16,7 @@ from retriva.config import settings
 from retriva.indexing.embeddings import get_embeddings
 from retriva.indexing.qdrant_store import get_client, search_chunks
 from retriva.logger import get_logger
+from retriva.profiler import Profiler
 from retriva.registry import CapabilityRegistry
 from typing import List, Dict, Optional, Any
 
@@ -52,7 +53,7 @@ def retrieve_top_chunks(
 
 
 def _rerank_if_enabled(query: str, chunks: List[Dict], enabled: bool = True) -> List[Dict]:
-    """Apply two-stage re-ranking."""
+    """Apply two-stage re-ranking with the globally configured provider."""
     if not enabled or not settings.enable_retrieval_reranking:
         return chunks
 
@@ -62,7 +63,15 @@ def _rerank_if_enabled(query: str, chunks: List[Dict], enabled: bool = True) -> 
 
     registry = CapabilityRegistry()
     reranker = registry.get_instance("reranker")
-    return reranker.rerank(query, chunks, settings.retrieval_rerank_top_n)
+    reranked = reranker.rerank(query, chunks, settings.retrieval_rerank_top_n)
+
+    # Observability: mark the rerank phase when a profiler is active for
+    # this request (no-op outside a request context).
+    profiler = Profiler.get_current()
+    if profiler:
+        profiler.mark_phase("rerank_complete")
+
+    return reranked
 
 
 def _hybrid_select_if_enabled(

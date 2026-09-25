@@ -46,7 +46,11 @@ def main():
     print(f"  Retriever top_k:      {s.retriever_top_k}")
     print(f"  Reranking enabled:    {s.enable_retrieval_reranking}")
     if s.enable_retrieval_reranking:
+        provider = (s.retrieval_rerank_provider or "openrouter").strip().lower() or "openrouter"
+        print(f"  Rerank provider:      {provider}")
         print(f"  Rerank model:         {s.retrieval_rerank_model}")
+        if provider == "bedrock":
+            print(f"  Rerank AWS region:    {s.retrieval_rerank_aws_region or '(AWS_REGION / AWS_DEFAULT_REGION)'}")
     print(f"  Qdrant URL:           {s.qdrant_url}")
     print(f"  Qdrant Collection:    {s.retriva_default_collection}")
     print(f"  Embedding model:      {s.embedding_model}")
