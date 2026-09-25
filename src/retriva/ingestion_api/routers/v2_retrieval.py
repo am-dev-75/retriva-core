@@ -26,6 +26,7 @@ import time
 import retriva.qa.retriever        # noqa: F401 — registers DefaultRetriever
 import retriva.qa.reranker         # noqa: F401 — registers DefaultReranker
 import retriva.qa.hybrid_selector  # noqa: F401 — registers DefaultHybridSelector
+from retriva.qa.reranking import sanitize_chunks_for_api
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v2/retrieval", tags=["v2-retrieval"])
@@ -97,7 +98,7 @@ async def search_documents(request: RetrievalRequest):
             )
             
             return RetrievalResponse(
-                chunks=result.get("chunks", []),
+                chunks=sanitize_chunks_for_api(result.get("chunks", [])),
                 entities=result.get("entities"),
                 assertions=result.get("assertions"),
                 relationships=result.get("relationships"),
@@ -130,7 +131,7 @@ async def search_documents(request: RetrievalRequest):
                 f"duration_ms={duration_ms}"
             )
             
-            return RetrievalResponse(chunks=chunks)
+            return RetrievalResponse(chunks=sanitize_chunks_for_api(chunks))
         
     except Exception as e:
         logger.error(f"Error during retrieval: {e}")

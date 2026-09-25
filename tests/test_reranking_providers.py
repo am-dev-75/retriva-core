@@ -143,10 +143,36 @@ class TestRuntimeReload:
         assert p1.name == "openrouter"
         assert p2.name == "bedrock"
 
-    def test_secret_change_rebuilds_provider(self):
+    def test_credential_change_does_not_rebuild_provider(self):
+        """Fingerprint policy: credentials are excluded from the fingerprint.
+
+        The OpenRouter transport reads the key at request time and the
+        Bedrock transport delegates to botocore's credential chain, so key
+        rotation must not force provider reconstruction.
+        """
         p1 = get_reranker_provider(_settings(retrieval_rerank_api_key="key-1"))
         p2 = get_reranker_provider(_settings(retrieval_rerank_api_key="key-2"))
+        assert p1 is p2  # reused, not rebuilt
+
+        cfg1 = RerankProviderConfig.from_settings(_settings(retrieval_rerank_api_key="key-1"))
+        cfg2 = RerankProviderConfig.from_settings(_settings(retrieval_rerank_api_key="key-2"))
+        assert cfg1.fingerprint() == cfg2.fingerprint()
+
+    def test_aws_region_change_rebuilds_provider(self):
+        p1 = get_reranker_provider(_settings(retrieval_rerank_provider="bedrock", retrieval_rerank_aws_region="eu-central-1"))
+        p2 = get_reranker_provider(_settings(retrieval_rerank_provider="bedrock", retrieval_rerank_aws_region="us-east-1"))
         assert p1 is not p2
+
+    def test_eu_policy_settings_are_in_fingerprint(self):
+        cfg1 = RerankProviderConfig.from_settings(_settings())
+        cfg2 = RerankProviderConfig.from_settings(
+            _settings(retrieval_rerank_enforce_eu_region=True)
+        )
+        cfg3 = RerankProviderConfig.from_settings(
+            _settings(retrieval_rerank_allowed_aws_regions="eu-central-1")
+        )
+        assert cfg1.fingerprint() != cfg2.fingerprint()
+        assert cfg1.fingerprint() != cfg3.fingerprint()
 
 
 # ---------------------------------------------------------------------------

@@ -44,9 +44,10 @@ async def lifespan(app: FastAPI):
     from retriva.registry import CapabilityRegistry
     CapabilityRegistry().load_extensions()
 
-    # Validate the global reranking configuration (log-and-continue,
-    # matching the Qdrant init convention; the standard reranker fallback
-    # policy applies at request time).
+    # Validate the global reranking configuration. Non-strict mode (default):
+    # log-and-continue, matching the Qdrant init convention; strict mode
+    # (RETRIEVAL_RERANK_STRICT_STARTUP_VALIDATION=true) FAILS startup — the
+    # raise must happen outside the log-and-continue handler below.
     try:
         from retriva.qa.reranking import refresh_reranker_health, validate_rerank_config
         reranker_issues = validate_rerank_config()
@@ -59,6 +60,9 @@ async def lifespan(app: FastAPI):
                 logger.warning(message)
     except Exception as e:
         logger.error(f"Reranker validation failed during startup: {e}")
+    # Strict-mode enforcement (raises RerankStartupError → startup fails).
+    from retriva.qa.reranking import enforce_rerank_startup
+    enforce_rerank_startup()
 
     # Mount extension-provided API routers (e.g. CRM Assistant).
     try:

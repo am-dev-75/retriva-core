@@ -261,7 +261,9 @@ class DefaultReranker:
             reranker_metrics.observe_latency(duration_ms)
             reranker_metrics.inc_failure(provider_name)
             reranker_metrics.inc_fallback()
-            reranker_health.record_failure(provider_name, str(e))
+            reranker_health.record_failure(
+                provider_name, str(e), category=getattr(e, "category", None)
+            )
             logger.warning(
                 f"Reranker failed, falling back to vector-search order: {e}"
             )
@@ -295,7 +297,15 @@ class DefaultReranker:
                 continue
             seen_indices.add(idx)
             chunk = chunks[idx]
-            # Sync _score so that subsequent sorting/diversity filters use the reranked score
+            # Score preservation: the original retrieval score is kept in
+            # `_retrieval_score`, the provider score lands in both
+            # `_rerank_score` (explicit) and `_score` (legacy key used by
+            # downstream sorting/diversity filters). Fallback and disabled
+            # paths leave `_score` untouched and never set `_rerank_score`.
+            original_score = chunk.get("_score")
+            if original_score is not None:
+                chunk["_retrieval_score"] = original_score
+            chunk["_rerank_score"] = score
             chunk["_score"] = score
             reranked.append(chunk)
             if len(reranked) >= effective_top_n:

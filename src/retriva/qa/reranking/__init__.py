@@ -31,13 +31,19 @@ knowledge-base-specific reranker configuration.
 """
 
 from retriva.qa.reranking.base import (
+    CANONICAL_PROVIDER_NAMES,
+    PROVIDER_ALIASES,
     RerankProvider,
     RerankProviderConfig,
     RerankProviderError,
+    canonical_provider_name,
+    sanitize_chunks_for_api,
 )
 from retriva.qa.reranking.factory import (
     DEFAULT_PROVIDER_NAME,
+    RerankStartupError,
     build_rerank_provider,
+    enforce_rerank_startup,
     get_reranker_provider,
     provider_names,
     register_rerank_provider,
@@ -48,19 +54,25 @@ from retriva.qa.reranking.health import RerankerHealth, reranker_health
 from retriva.qa.reranking.metrics import RerankerMetrics, reranker_metrics
 
 __all__ = [
+    "CANONICAL_PROVIDER_NAMES",
     "DEFAULT_PROVIDER_NAME",
+    "PROVIDER_ALIASES",
     "RerankProvider",
     "RerankProviderConfig",
     "RerankProviderError",
+    "RerankStartupError",
     "RerankerHealth",
     "RerankerMetrics",
     "build_rerank_provider",
+    "canonical_provider_name",
+    "enforce_rerank_startup",
     "get_reranker_provider",
     "provider_names",
     "register_rerank_provider",
     "reranker_health",
     "reranker_metrics",
     "resolve_provider_name",
+    "sanitize_chunks_for_api",
     "validate_rerank_config",
 ]
 
@@ -69,7 +81,9 @@ def get_reranker_status() -> dict:
     """Aggregate reranker status for health reporting.
 
     Never includes secret values — ``RerankProviderConfig.public_dict()``
-    reports only whether an API key is set.
+    reports only whether an API key is set. Never includes raw provider
+    exceptions, query/document text, or stack traces — only normalized,
+    bounded health data.
     """
     from retriva.config import settings
 
@@ -77,7 +91,7 @@ def get_reranker_status() -> dict:
     config = None
     if settings.enable_retrieval_reranking:
         try:
-            p = get_reranker_provider()
+            p = get_reranker_provider(settings)
             provider = getattr(p, "name", None)
         except Exception:
             provider = None

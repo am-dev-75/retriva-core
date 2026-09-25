@@ -18,22 +18,32 @@ Reranking provider factory.
 Selection precedence (global, not per-KB):
 
 1. ``RETRIEVAL_RERANK_PROVIDER`` (or ``settings.retrieval_rerank_provider``)
-   — explicit selection. Case-insensitive, empty means default.
+   — explicit selection. Case/whitespace-insensitive; empty means default;
+   aliases (``aws_bedrock``, ``aws-bedrock``, ``cohere``) normalize to the
+   canonical names ``bedrock`` / ``openrouter`` BEFORE any snapshot is
+   built, so cache fingerprints, instances, logs, metrics and status
+   always use canonical values.
 2. Default: ``"openrouter"`` (the Cohere-compatible ``/rerank`` transport
    used by every existing deployment — preserves current behavior).
 3. Unknown names fail fast with the list of registered providers.
 
 Runtime reload: the factory caches the built provider keyed by a
-fingerprint of the effective :class:`RerankProviderConfig`. When the global
-settings change (e.g. programmatically by extensions/tests, or after an
-operator mutates the settings object), the next ``get_reranker_provider()``
-call detects the new fingerprint and rebuilds the provider. Environment
-variables are read once at process start by pydantic-settings, so env-only
-changes still require a process restart.
+fingerprint of the effective :class:`RerankProviderConfig` (behavioral,
+non-secret settings only — credentials excluded). When the global
+settings change, the next ``get_reranker_provider()`` call detects the
+new fingerprint and rebuilds the provider under a lock (thread-safe:
+exactly one build per config change even under concurrent retrieval).
+Environment variables are read once at process start by
+pydantic-settings, so env-only changes still require a process restart
+(AWS *credential* environment changes are detected separately by the
+Bedrock provider, which rebuilds its client without freezing
+credentials).
 """
 
+import os
 import threading
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlparse
 
 from retriva.config import settings
 from retriva.logger import get_logger
@@ -41,7 +51,8 @@ from retriva.qa.reranking.base import (
     RerankProvider,
     RerankProviderConfig,
     RerankProviderError,
-    _normalize_provider_name,
+    canonical_provider_name,
+    build_config_snapshot,
 )
 
 logger = get_logger(__name__)
@@ -49,8 +60,15 @@ logger = get_logger(__name__)
 #: Provider used when nothing is explicitly configured (legacy behavior).
 DEFAULT_PROVIDER_NAME = "openrouter"
 
-#: Providers registered under additional names (same implementation).
-_PROVIDER_ALIASES: Dict[str, str] = {"cohere": "openrouter"}
+#: Aliases are applied inside :func:`canonical_provider_name` (base.py) so
+#: every snapshot, fingerprint, instance, log and status output carries the
+#: canonical name. Kept here only for backward-compatible name resolution
+#: of configs built directly (not via ``from_settings``).
+_PROVIDER_ALIASES: Dict[str, str] = {
+    "cohere": "openrouter",
+    "aws_bedrock": "bedrock",
+    "aws-bedrock": "bedrock",
+}
 
 ProviderFactory = Callable[[RerankProviderConfig], RerankProvider]
 
@@ -59,6 +77,10 @@ _registered: Dict[str, ProviderFactory] = {}
 # lock, and register_rerank_provider re-acquires it.
 _registration_lock = threading.RLock()
 _builtins_loaded = False
+
+
+class RerankStartupError(RuntimeError):
+    """Raised when strict startup validation rejects the rerank config."""
 
 
 # -- registration ----------------------------------------------------------
@@ -70,7 +92,7 @@ def register_rerank_provider(name: str, factory_fn: ProviderFactory) -> None:
     Extensions (Retriva Pro) can add transports here without touching the
     pipeline: the globally selected name resolves through this registry.
     """
-    normalized = _normalize_provider_name(name)
+    normalized = canonical_provider_name(name)
     if not normalized:
         raise ValueError("rerank provider name must not be empty")
     with _registration_lock:
@@ -102,7 +124,7 @@ def _ensure_builtin_providers() -> None:
 
 
 def provider_names() -> List[str]:
-    """Names of all registered provider implementations."""
+    """Canonical names of all registered provider implementations."""
     _ensure_builtin_providers()
     with _registration_lock:
         return sorted(_registered.keys())
@@ -112,12 +134,8 @@ def provider_names() -> List[str]:
 
 
 def resolve_provider_name(config: RerankProviderConfig) -> str:
-    """Resolve the effective provider name with aliases applied.
-
-    Normalizes case/whitespace so configs built directly (not via
-    ``from_settings``) resolve identically.
-    """
-    name = _normalize_provider_name(config.provider) or DEFAULT_PROVIDER_NAME
+    """Resolve the effective provider name with aliases applied."""
+    name = canonical_provider_name(config.provider) or DEFAULT_PROVIDER_NAME
     return _PROVIDER_ALIASES.get(name, name)
 
 
@@ -151,23 +169,24 @@ def get_reranker_provider(settings_obj: Any = None) -> RerankProvider:
     """Return the provider for the current global settings, rebuilding on change.
 
     Cheap per-call check: a config snapshot + tuple comparison. The instance
-    is rebuilt only when the effective configuration changed (runtime reload).
+    is rebuilt only when the effective configuration changed (runtime
+    reload); the build happens under the cache lock, so concurrent
+    retrievals share exactly one provider instance per configuration.
     """
     global _cached_fingerprint, _cached_provider
 
-    cfg = RerankProviderConfig.from_settings(settings_obj or settings)
+    cfg, _ = build_config_snapshot(settings_obj or settings)
     fingerprint = cfg.fingerprint()
 
     with _cache_lock:
         if _cached_provider is not None and _cached_fingerprint == fingerprint:
             return _cached_provider
-
-    provider = build_rerank_provider(cfg)
-
-    with _cache_lock:
+        # Built under the lock: fast (no network), and guarantees a single
+        # provider instance per fingerprint even under concurrency.
+        provider = build_rerank_provider(cfg)
         _cached_fingerprint = fingerprint
         _cached_provider = provider
-    return provider
+        return provider
 
 
 def reset_provider_cache() -> None:
@@ -184,9 +203,13 @@ def reset_provider_cache() -> None:
 def validate_rerank_config(settings_obj: Any = None) -> List[Dict]:
     """Validate the reranking configuration without contacting any provider.
 
-    Returns a list of issues: ``{"level": "error"|"warning", "message": str}``.
-    Startup logs these (non-fatal, matching Retriva's log-and-continue
-    convention); the first runtime call applies the standard fallback policy.
+    Returns a list of issues: ``{"level": "error"|"warning",
+    "strict_fatal": bool, "message": str}``. Startup logs these
+    (non-fatal in non-strict mode, matching Retriva's log-and-continue
+    convention); :func:`enforce_rerank_startup` raises in strict mode.
+
+    Never performs an AWS request: Bedrock checks are static (region
+    resolution, ARN shape) plus a bundled botocore service-model inspection.
     """
     s = settings_obj or settings
     issues: List[Dict] = []
@@ -194,12 +217,27 @@ def validate_rerank_config(settings_obj: Any = None) -> List[Dict]:
     if not getattr(s, "enable_retrieval_reranking", True):
         return issues
 
-    cfg = RerankProviderConfig.from_settings(s)
+    cfg, notes = build_config_snapshot(s)
+    for note in notes:
+        issues.append(
+            {
+                "level": "warning",
+                "strict_fatal": True,
+                "message": f"Invalid numeric setting defaulted — {note}. "
+                f"Fix the value or startup fails in strict mode.",
+            }
+        )
 
     try:
         name = resolve_provider_name(cfg)
     except Exception as exc:  # pragma: no cover — defensive
-        return [{"level": "error", "message": f"Rerank provider resolution failed: {exc}"}]
+        return [
+            {
+                "level": "error",
+                "strict_fatal": True,
+                "message": f"Rerank provider resolution failed: {exc}",
+            }
+        ]
 
     _ensure_builtin_providers()
     with _registration_lock:
@@ -208,6 +246,7 @@ def validate_rerank_config(settings_obj: Any = None) -> List[Dict]:
         issues.append(
             {
                 "level": "error",
+                "strict_fatal": True,
                 "message": (
                     f"Unknown RETRIEVAL_RERANK_PROVIDER '{cfg.provider}'. "
                     f"Registered providers: {', '.join(sorted(_registered.keys()))}."
@@ -217,50 +256,196 @@ def validate_rerank_config(settings_obj: Any = None) -> List[Dict]:
         return issues
 
     if name == "bedrock":
-        from retriva.qa.reranking.providers.bedrock import effective_aws_region
+        from retriva.qa.reranking.providers.bedrock import (
+            arn_region,
+            effective_aws_region,
+            verify_rerank_operation_available,
+        )
 
         if not (cfg.model or "").strip():
             issues.append(
                 {
                     "level": "error",
+                    "strict_fatal": True,
                     "message": "Bedrock reranker requires RETRIEVAL_RERANK_MODEL "
-                    "(e.g. 'amazon.rerank-v1:0' or a full model ARN).",
+                    "(e.g. 'amazon.rerank-v1:0', 'cohere.rerank-v3-5:0' or a "
+                    "full model ARN).",
                 }
             )
-        if not effective_aws_region(cfg):
+        region = effective_aws_region(cfg)
+        if not region:
             issues.append(
                 {
                     "level": "error",
+                    "strict_fatal": True,
                     "message": "Bedrock reranker requires an AWS region: set "
-                    "RETRIEVAL_RERANK_AWS_REGION, AWS_REGION or AWS_DEFAULT_REGION.",
+                    "RETRIEVAL_RERANK_AWS_REGION, AWS_REGION or "
+                    "AWS_DEFAULT_REGION.",
+                }
+            )
+        # SDK operation check (no network: bundled service model only).
+        try:
+            verify_rerank_operation_available()
+        except RerankProviderError as exc:
+            issues.append(
+                {
+                    "level": "error",
+                    "strict_fatal": True,
+                    "message": str(exc),
                 }
             )
         if cfg.api_key:
             issues.append(
                 {
                     "level": "warning",
+                    "strict_fatal": False,
                     "message": "RETRIEVAL_RERANK_API_KEY is ignored by the bedrock "
                     "provider; credentials come from the standard AWS chain "
                     "(env vars, shared config, or the workload IAM role).",
                 }
             )
+        # EU region enforcement (opt-in).
+        if cfg.enforce_eu_region:
+            issues.extend(_validate_eu_policy(cfg, region, name))
     else:
-        if not (cfg.base_url or "").strip():
+        if not (cfg.model or "").strip():
             issues.append(
                 {
                     "level": "error",
+                    "strict_fatal": True,
                     "message": f"The '{name}' rerank provider requires "
-                    "RETRIEVAL_RERANK_BASE_URL.",
+                    "RETRIEVAL_RERANK_MODEL.",
+                }
+            )
+        problem = _validate_base_url(cfg.base_url)
+        if problem:
+            issues.append(
+                {
+                    "level": "error",
+                    "strict_fatal": True,
+                    "message": f"The '{name}' rerank provider RETRIEVAL_RERANK_BASE_URL "
+                    f"{problem}.",
                 }
             )
         if not (cfg.api_key or "").strip():
             issues.append(
                 {
                     "level": "warning",
+                    "strict_fatal": False,
                     "message": f"No API key configured for the '{name}' rerank "
                     "provider (RETRIEVAL_RERANK_API_KEY / OPENROUTER_OPENAI_API_KEY); "
                     "requests will fail until one is set.",
                 }
             )
 
+    if cfg.enforce_eu_region and name != "bedrock":
+        issues.append(
+            {
+                "level": "warning",
+                "strict_fatal": True,
+                "message": f"RETRIEVAL_RERANK_ENFORCE_EU_REGION applies only to "
+                f"the bedrock provider; it is ignored for '{name}'.",
+            }
+        )
+
+    return issues
+
+
+def _validate_base_url(base_url: str) -> Optional[str]:
+    """Return a problem description for an invalid endpoint, else None."""
+    try:
+        parsed = urlparse((base_url or "").strip())
+    except ValueError:
+        return "is not a valid URL"
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return "is not a valid absolute http(s) URL"
+    return None
+
+
+def _validate_eu_policy(
+    cfg: RerankProviderConfig, region: Optional[str], name: str
+) -> List[Dict]:
+    """Static EU-region-policy validation (opt-in, bedrock provider)."""
+    issues: List[Dict] = []
+    allowed = tuple(cfg.allowed_aws_regions)
+    if not allowed:
+        issues.append(
+            {
+                "level": "error",
+                "strict_fatal": True,
+                "message": "RETRIEVAL_RERANK_ENFORCE_EU_REGION is enabled but "
+                "RETRIEVAL_RERANK_ALLOWED_AWS_REGIONS is empty; configure at "
+                "least one allowed region (e.g. eu-central-1).",
+            }
+        )
+        return issues
+    if region and region not in allowed:
+        issues.append(
+            {
+                "level": "error",
+                "strict_fatal": True,
+                "message": f"EU region policy violation: configured region "
+                f"'{region}' is not in RETRIEVAL_RERANK_ALLOWED_AWS_REGIONS "
+                f"({', '.join(allowed)}).",
+            }
+        )
+    if (cfg.model or "").strip().startswith("arn:aws"):
+        from retriva.qa.reranking.providers.bedrock import arn_region
+
+        arn_reg = arn_region(cfg.model)
+        if arn_reg and region and arn_reg != region:
+            issues.append(
+                {
+                    "level": "error",
+                    "strict_fatal": True,
+                    "message": f"EU region policy violation: model ARN belongs "
+                    f"to region '{arn_reg}' but the client region is "
+                    f"'{region}'.",
+                }
+            )
+    for env in ("AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_BEDROCK_AGENT_RUNTIME"):
+        if os.environ.get(env):
+            issues.append(
+                {
+                    "level": "error",
+                    "strict_fatal": True,
+                    "message": f"EU region policy violation: endpoint override "
+                    f"{env} is set while RETRIEVAL_RERANK_ENFORCE_EU_REGION "
+                    f"is enabled.",
+                }
+            )
+    return issues
+
+
+def enforce_rerank_startup(settings_obj: Any = None) -> List[Dict]:
+    """Validate the reranking configuration at startup.
+
+    Non-strict mode (default, backward compatible): returns the issues for
+    log-and-continue handling; numeric defaulting is surfaced as a degraded
+    configuration status.
+
+    Strict mode (``RETRIEVAL_RERANK_STRICT_STARTUP_VALIDATION=true``):
+    raises :class:`RerankStartupError` for invalid static settings,
+    unsupported providers, missing regions, unsupported SDK operations,
+    invalid endpoints, invalid numeric settings, and EU-region-policy
+    violations. Never makes an AWS request.
+    """
+    s = settings_obj or settings
+    strict = bool(getattr(s, "retrieval_rerank_strict_startup_validation", False))
+    issues = validate_rerank_config(s)
+
+    from retriva.qa.reranking.health import reranker_health
+
+    if not strict:
+        for issue in issues:
+            if issue.get("strict_fatal"):
+                reranker_health.record_config_issue(issue["message"])
+        return issues
+
+    fatal = [i for i in issues if i["level"] == "error" or i.get("strict_fatal")]
+    if fatal:
+        raise RerankStartupError(
+            "Retrieval reranking configuration failed strict startup "
+            "validation: " + " | ".join(i["message"] for i in fatal)
+        )
     return issues

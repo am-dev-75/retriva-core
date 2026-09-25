@@ -139,6 +139,17 @@ class Settings(BaseSettings):
     # NOT stored here: boto3's standard chain applies (AWS_* env vars,
     # shared config files, or the workload IAM role — recommended).
     retrieval_rerank_aws_region: str = ""
+    # Strict startup validation: when true, both Retriva APIs FAIL to start
+    # on invalid reranking configuration (unsupported provider, missing
+    # region, unsupported SDK operation, invalid endpoint, invalid numeric
+    # settings, EU-region-policy violations). Default (false) preserves the
+    # legacy log-and-continue behavior with a degraded-configuration status.
+    retrieval_rerank_strict_startup_validation: bool = False
+    # EU region enforcement (bedrock provider, opt-in): reject regions not
+    # in RETRIEVAL_RERANK_ALLOWED_AWS_REGIONS, model-ARN/region mismatches,
+    # and unsafe endpoint overrides. No rerouting, no provider fallback.
+    retrieval_rerank_enforce_eu_region: bool = False
+    retrieval_rerank_allowed_aws_regions: str = ""
     # Transport tuning shared by all providers (defaults match the legacy
     # hard-coded retry/timeout policy).
     retrieval_rerank_timeout: float = 30.0
