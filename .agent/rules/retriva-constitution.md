@@ -1,289 +1,1035 @@
 ---
-description: Retriva project constitution — non-negotiable law for every retriva-* repository, spec, and change
+description: Retriva project constitution, the non-negotiable governing law for every retriva-* repository, specification, and change
 alwaysApply: true
 ---
 
 # Retriva Project Constitution
 
-v1.0 — 2026-09-26
-Canonical location: `retriva-core/.agent/rules/retriva-constitution.md` (referenced by repo `AGENTS.md` order-of-authority chains and the `RETRIVA_CONSTITUTION` setting).
+**Version:** 1.1  
+**Date:** 2026-09-26  
+**Status:** Active
 
-## Mission
+**Canonical location:**  
+`retriva-core/.agent/rules/retriva-constitution.md`
 
-Retriva is a privacy-first, enterprise conversational RAG system that gives
-accurate, attributable answers grounded strictly in customer-owned knowledge
-bases, under the customer's data-sovereignty requirements.
+Every governed repository MUST reference this canonical constitution through
+its `AGENTS.md` order-of-authority chain or another explicitly documented
+mechanism.
 
-It is a multi-repo system:
+The deployment setting `RETRIVA_CONSTITUTION`, when supported, MUST resolve to
+this canonical document or to a verified copy with the same version and
+content hash.
 
-- **Retriva Core** (Apache-2.0, OSS) — the data plane: ingestion, chunking,
-  embeddings, Qdrant vector storage, retrieval and reranking, LLM request
-  construction, OpenAI-compatible chat API, modular GraphRAG.
-- **Retriva Gateway** (Apache-2.0, OSS) — the control plane / BFF: policy,
-  orchestration, identifier mapping, guardrails.
-- **Retriva WebUI** (Apache-2.0, OSS) — the reference frontend.
-- **Retriva Pro extensions** (proprietary) — IAM (Entra), MediaWiki connector,
-  email-agent connector, CRM assistant, web research, messaging.
-- **Deployment tooling** — local containerized deployment (Qdrant, Tika,
-  Redis, and extension services).
+---
 
-Every spec, plan, and change serves this mission. Everything else in this
-document is law about how.
+## 1. Mission
 
-## Scope
+Retriva is a privacy-first enterprise conversational RAG system that provides
+accurate, attributable answers grounded in authorized customer knowledge and
+business data, subject to the customer's security, privacy, residency, and
+data-sovereignty requirements.
 
-This constitution governs all `retriva-*` repositories, current and future,
-including specs, architecture, code, tests, deployment, and documentation.
+Retriva is a multi-repository system comprising:
 
-Feature-level constitutions (e.g. SDD-pack `memory/constitution.md` files)
-and repository `AGENTS.md` files refine this document. They may add stricter
-constraints; they may never contradict it.
+- **Retriva Core**, licensed under Apache-2.0, which provides the data plane:
+  ingestion, parsing, chunking, embeddings, Qdrant vector storage, retrieval,
+  reranking, LLM request construction, OpenAI-compatible chat APIs, and
+  modular GraphRAG.
 
-## Order of authority
+- **Retriva Gateway**, licensed under Apache-2.0, which provides the control
+  plane and backend-for-frontend functions: policy enforcement,
+  orchestration, identifier mapping, capability routing, and guardrails.
 
-1. **This constitution** — non-negotiable project law.
-2. **Feature constitutions and repo `AGENTS.md`** — stricter refinements and
-   task-specific working orders.
-3. **`spec.md`** — what and why: goal, scope, requirements.
-4. **`architecture.md` and ADRs** — how, and the recorded decisions behind it.
-5. **`plan.md` and `tasks.md`** — execution sequencing.
-6. **Code** — what the system actually does today.
+- **Retriva WebUI**, licensed under Apache-2.0, which provides the reference
+  frontend.
 
-More specific documents implement more general ones; none may contradict this
-constitution. Where code and documents disagree, treat the disagreement as a
-defect and fix one or the other in the same change — never let them drift.
+- **Retriva Pro extensions**, distributed under proprietary terms, which may
+  provide IAM integration, connectors, CRM Assistant, Web Research, email and
+  messaging integrations, and other commercial capabilities.
 
-## Non-negotiable principles
+- **Deployment tooling**, which provides supported containerized deployments
+  and shared infrastructure such as Qdrant, PostgreSQL, Tika, Redis, and
+  extension services.
 
-### Product law
+Every specification, architecture decision, plan, implementation, test,
+deployment, and document governed by this constitution MUST serve this
+mission.
 
-### 1. Grounded answers only
-Responses are generated strictly from retrieved Knowledge Base content. When
-the KB does not contain sufficient information, the system says so
-explicitly. Synthesis beyond the KB is a defect, not a feature.
+---
 
-### 2. Identity-preserving documents
-Every document keeps the identity it was given at upload time. Retriva never
-collapses, merges, or deduplicates documents automatically based on content.
-User intent, lifecycle independence, and metadata correctness win over storage
-economy.
+## 2. Scope
 
-### 3. Nearly-deterministic behavior
-Given the same request and identical Knowledge Bases, the system produces the
-same output. Nondeterminism is admitted only where an external LLM provider
-forces it, and tests neutralize it with deterministic providers or mocks.
+This constitution governs all current and future `retriva-*` repositories,
+including:
 
-### 4. Control plane and data plane are separate
-WebUI talks only to Gateway; Gateway is the policy choke point; Core is the
-system of record for documents, chunks, metadata, and retrieval. At no point
-do uploads implicitly cause LLM calls.
+- specifications;
+- architecture;
+- source code;
+- public and internal APIs;
+- extension contracts;
+- tests;
+- persistent schemas;
+- migrations;
+- deployment;
+- security;
+- privacy;
+- observability;
+- documentation;
+- operational acceptance.
 
-### 5. Frontend agnosticism
-The OpenAI-compatible chat API and the documented ingestion APIs are the
-public contract. No frontend-specific logic lives below Gateway; any frontend
-(WebUI, Open WebUI, custom) is replaceable without Core changes.
+Feature-level constitutions and repository-level `AGENTS.md` files MAY impose
+stricter or more specific constraints. They MUST NOT contradict or weaken
+this constitution.
 
-### 6. Model agnosticism
-Providers and models are selected through configuration. The reranker is
-deliberately global — one provider and one model for every knowledge base,
-user, and customer — and there is no per-KB reranker policy.
+---
 
-### 7. Compatibility is additive
-Existing public-API clients (e.g. `ingestion_api_v1`) must keep working
-unchanged. New capabilities are additive and versioned; breaking changes
-require a new, explicitly versioned contract — never an in-place break.
+## 3. Normative language
 
-### Architecture law
+The terms **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
+normative.
 
-### 8. LangChain-free
-Retriva Core does not depend on LangChain. Keep it that way.
+- **MUST** and **MUST NOT** express constitutional requirements.
+- **SHOULD** and **SHOULD NOT** express strong defaults. A deviation requires
+  documented justification and evidence that constitutional protections are
+  preserved.
+- **MAY** expresses permitted behavior.
 
-### 9. Vendor-neutral public contracts
-All public and extension-facing models are storage-neutral Pydantic
-contracts. No vendor types (Qdrant payloads, Neo4j/Memgraph types, provider
-SDK objects) leak through public APIs or the extension SDK/SPI. Storage
-backends sit behind protocols (e.g. `GraphStore`) so a backend can be swapped
-without changing contracts.
+Words such as "never", "always", "required", and "forbidden" have the same
+normative force as MUST or MUST NOT when used in a governing statement.
 
-### 10. Ingestion converges on Core
-Static, dynamic, and connector-driven ingestion all enter through the
-canonical Gateway/Core ingestion contracts. No component outside Core
-implements its own chunking, embedding, vector upsert, or document-catalog
-semantics. Connectors are source adapters: they fetch, normalize, map
-metadata, and submit — nothing else.
+---
 
-### 11. Extensions extend, never fork
-Extensions register capabilities through the `RETRIVA_EXTENSIONS` mechanism
-and its registries (e.g. `CapabilityRegistry`, `GraphExtensionRegistry`) using
-namespaced vocabularies (`retriva:`, `crm:`, vendor prefixes). Core-owned
-shared services (e.g. entity resolution) are used, not reimplemented. The
-first connector (MediaWiki) is not a special case: every future connector
-(SharePoint, OneDrive, Drive, SFTP, …) must fit the same contract.
+## 4. Order of authority
 
-### 12. Optional capabilities are disabled by default and failure-isolated
-Optional capabilities (e.g. GraphRAG) ship disabled; when disabled, system
-behavior is exactly what it was before. When enabled, their failures are
-isolated (e.g. graph indexing errors never fail an ingestion job or the
-vector index).
+The order of authority is:
 
-### 13. Identifier ownership is explicit
-Core owns `doc_id`, collections, and `kb_id` tags. Gateway owns the mappings
-between UI identifiers and Core identifiers. No component assumes or
-reconstructs another component's internal identifiers.
+1. **This constitution**
+2. **Approved feature constitutions and repository `AGENTS.md` files**
+3. **Accepted `spec.md`**
+4. **Accepted `architecture.md` and Architecture Decision Records**
+5. **Accepted `plan.md`, `tasks.md`, and `acceptance.md`**
+6. **Code and deployed behavior**
 
-### 14. Every store of record is declared
-Qdrant is the vector system of record; PostgreSQL is the authoritative
-relational store for business identity, lifecycle, and audit where an ADR
-says so. Introducing a new persistent store, or changing what a store owns,
-requires an ADR.
+More-specific governing documents implement more-general ones. They MUST NOT
+contradict higher-authority documents.
 
-### Data and knowledge law
+Code is authoritative evidence of current runtime behavior. It is not
+normatively superior to this constitution, an accepted specification, or an
+ADR.
 
-### 15. Assertions, not facts
-LLM-extracted knowledge is modelled as evidence-backed assertions with
-confidence, provenance, temporal validity, and lifecycle status
-(`active`, `superseded`, `retracted`, `invalidated`). Conflicting assertions
-are preserved — never silently overwritten.
+When code and governing documents disagree:
 
-### 16. Mandatory provenance
-Every entity, assertion, relationship, and retrievable result is traceable to
-its source documents and chunks. Chat answers carry citations. Results
-without evidence references are a defect.
+1. the disagreement MUST be recorded as a defect;
+2. the code MUST be changed unless the governing requirement is explicitly
+   amended through its required process;
+3. a governing document MUST NOT be amended retroactively merely to
+   legitimize an accidental or non-compliant implementation;
+4. the code, tests, and governing documents MUST return to agreement within
+   the same change whenever practical.
 
-### 17. One logical graph per knowledge boundary
-A single logical graph serves each `(collection, kb_id)` scope. Extensions add
-namespaced semantic overlays to the common graph — never independent silos.
+---
 
-### 18. User metadata is opaque
-User-provided metadata is accepted as-is at ingestion, persisted at document
-level, propagated to every chunk, and visible to retrieval, filtering,
-citations, and deletion. Core stores it but never interprets, routes on, or
-derives policy from it.
+## 5. Handling conflicts and violations
 
-### 19. Web evidence is never a snippet
-Search snippets are URL discovery only. Authoritative evidence requires
-controlled retrieval of the source, normalized extraction, and full
-provenance (URL, retrieval timestamp, content hash). Evidence lifecycle is
-explicit (`SESSION` vs `PERSISTENT_KB`), and persistent admission happens only
-through the standard ingestion/indexing contracts.
+When a requested change appears to conflict with this constitution, the agent
+or contributor MUST stop the conflicting portion of the work and identify the
+specific rule involved.
 
-### 20. Data movement is idempotent and resumable
-Every sync, retry, or crash-recovery path uses stable source identity
-(`source_item_id` + `source_revision`), checkpoints, and content-hash caches
-(e.g. OCR). Processing the same item twice must not duplicate or lose data;
-long jobs must resume from checkpoints, not restart; cancellation is
-cooperative.
+It MUST then propose one of:
 
-### 21. First sync is safe by construction
-Initial sync uses: baseline start watermark → full baseline scan → catch-up
-delta from the watermark → checkpoint save → activation only after catch-up
-completes. A source still in baseline/catch-up must not silently present as
-complete.
+1. a constitution-compliant implementation;
+2. a formal amendment;
+3. a temporary exception where this constitution permits one;
+4. a narrower scope that avoids the conflict.
 
-### 22. Deletion is explicit
-Remote deletions default to soft-delete/deactivation. Hard deletion requires
-explicitly configured policy.
+A violation MUST NOT be concealed through:
 
-### 23. Business-critical mutations are auditable
-Business stores keep an append-only audit trail. Risky automations — entity
-merges, qualification lifecycles, role changes — require recorded
-merge/review candidates and human approval gates.
+- undocumented feature flags;
+- metadata fields;
+- silent fallbacks;
+- test exclusions;
+- permissive defaults;
+- hidden Pro dependencies;
+- implementation-specific behavior not represented in the specification.
 
-### Security and privacy law
+---
 
-### 24. Data sovereignty by design
-On-prem, hybrid, and confidential-computing deployments are first-class
-models. No component assumes a trusted third-party cloud or that data may
-leave the customer's boundary.
+# Part I: Product law
 
-### 25. Security trimming before return
-No graph object, assertion, path, or embedding may cross an unauthorized
-`(tenant_id, kb_id)` boundary; filtering happens before results are returned.
-Every new persistent record carries its `tenant_id` from its first migration.
+## 6. Grounded substantive answers only
 
-### 26. No content leakage
-Logs, telemetry, exceptions, run summaries, and artifacts must never include
-document content, page bodies, retrieved chunks, prompts, answers, embedding
-vectors, or raw exception messages containing any of these.
+Every substantive factual answer MUST be grounded in evidence obtained from
+an authorized Retriva source.
 
-### 27. Secrets are referenced, never stored
-Credentials come from environment variables, mounted files, or secret
-backends. Persistence stores only `secret_ref`-style references. Secrets never
-appear in checkpoints, state files, telemetry, logs, URL query strings, or
-browser storage.
+Authorized evidence sources MAY include:
 
-### 28. Egress is bounded and SSRF-safe
-All outbound fetching is controlled: allow/blocked-domain policies, size and
-time caps, rate limits, and provider-neutral contracts. No arbitrary-URL
-crawling.
+- retrieved Knowledge Base content;
+- authoritative relational business stores;
+- approved tool results;
+- approved qualification assessments;
+- controlled external evidence explicitly permitted by the active workflow;
+- user-provided content in the current authorized context.
 
-### 29. AuthN/AuthZ is pluggable and optional
-Identity and access management is provided by extensions (e.g. Microsoft
-Entra). Core stays agnostic, and a no-auth local mode remains a supported,
-explicit deployment configuration.
+The answer MUST identify the evidence class and MUST carry source references
+where the response contract supports them.
 
-### Verification law
+When authorized sources do not contain sufficient information, Retriva MUST
+say so explicitly.
 
-### 30. Done means acceptance passed, not code-complete
-A feature is done only when its spec's acceptance criteria pass. Operational
-acceptance is a separate, mandatory gate: a live run through the deployed
-interface with representative data, inspection through the real stores,
-persistence across container recreation, and a repeated run proving semantic
-idempotency.
+The model MUST NOT present any of the following as customer-specific fact
+without supporting evidence:
 
-### 31. Phase gating
-The next phase must not begin until the current phase's live acceptance
-passes. "Code-complete" never unlocks the next phase by itself.
+- parametric model knowledge;
+- unsupported synthesis;
+- assumptions;
+- plausible inferences;
+- provider-generated metadata;
+- search snippets;
+- unresolved assertions.
 
-### 32. Every requirement is testable
-Functional requirements come with verifiable acceptance criteria. Deterministic
-tests (mock providers, containerized PostgreSQL) are the default; tests that
-hit real external providers (e.g. Bedrock smoke tests) are marked and kept
-separate from the deterministic suite.
+Operational responses such as tool results, workflow status, import
+reconciliation, and error explanations MAY be grounded in authoritative
+runtime or business-store data rather than Knowledge Base documents.
 
-### 33. Regressions are protected
-Existing tests must keep passing. Intentional behavior changes update spec and
-tests in the same change. Changes affecting parsing, chunking, embedding, or
-retrieval re-run bilingual/cross-language regression validation.
+---
 
-### 34. Internal observability stays internal
-Debug endpoints and the internal profiler are debug-only. They never become
-implicit public API.
+## 7. Identity-preserving documents
 
-### Change process law
+Every document MUST retain the identity assigned at upload or source
+registration.
 
-### 35. Spec before code
-Substantial work happens in numbered, self-contained spec packs
-(`specs/NNN-name/`: `spec.md`, `architecture.md`, `plan.md`, `tasks.md`,
-`acceptance.md`, plus `openapi.yaml` when the API surface changes). No
-substantial change without a spec; no spec without scope boundaries.
+Retriva MUST NOT automatically merge, collapse, or deduplicate distinct
+documents solely because their content is identical or similar.
 
-### 36. ADRs record significant decisions
-Backend choices, provider changes, persistence boundaries, versioning, and
-security posture get an Architecture Decision Record before implementation,
-not after.
+User intent, lifecycle independence, tenant boundaries, deletion semantics,
+and metadata correctness take precedence over storage economy.
 
-### 37. Documents travel with the change
-READMEs, docs, specs, and this constitution are updated in the same change as
-the code they describe. The repository's documentation is a truth source, not
-an afterthought.
+Content hashes MAY be used for:
 
-### 38. Scope is binding
-In-scope and out-of-scope lists are contracts. Scope changes go through
-explicit spec amendment — never silent expansion during implementation.
+- processing caches;
+- OCR caches;
+- integrity checks;
+- duplicate warnings;
+- idempotency detection.
 
-### 39. Licensing boundary
-OSS components (Core, Gateway, WebUI — Apache-2.0) and Pro extensions
-(proprietary) never mix: no proprietary code, behavior, or coupling inside
-OSS paths, and a default deployment (`up` without the Pro profile) never
-pulls, builds, or runs proprietary components.
+A content hash MUST NOT silently replace document identity.
 
-## Amendment
+---
 
-- Amend this constitution through an ADR-style proposal plus an explicit
-  version bump and date on this file.
-- Amendments may not weaken product-compatibility, security, privacy, or
-  verification law; they may only strengthen a rule or replace it with one at
-  least as strict.
-- Feature constitutions and `AGENTS.md` files inherit this document and must
-  be re-checked whenever it changes.
+## 8. Deterministic semantics by default
+
+Given the same:
+
+- normalized request;
+- tenant and knowledge scope;
+- source snapshot;
+- configuration;
+- provider versions;
+- accepted policies;
+
+Retriva MUST produce the same:
+
+- business decisions;
+- dispositions;
+- ordering rules;
+- state transitions;
+- identity-resolution outcomes;
+- authorization outcomes.
+
+Stable tie-breakers MUST be used wherever scores can tie.
+
+The following are exempt from byte-for-byte determinism:
+
+- generated identifiers;
+- timestamps;
+- provider-generated prose;
+- externally changing evidence;
+- floating-point representation differences;
+- nondeterminism imposed by external model providers.
+
+These differences MUST NOT change deterministic business decisions without an
+explicit, observable, and recorded cause.
+
+Tests MUST replace nondeterministic providers with deterministic fakes,
+mocks, or recorded fixtures and SHOULD assert semantic outcomes rather than
+incidental formatting.
+
+---
+
+## 9. Control plane and data plane remain separate
+
+The WebUI MUST communicate with Gateway rather than relying directly on Core
+internal APIs.
+
+Gateway is the policy and orchestration choke point for public frontend
+traffic.
+
+Core owns canonical ingestion, retrieval, and document-processing semantics.
+
+Uploads MUST NOT implicitly cause:
+
+- LLM calls;
+- Web Research;
+- qualification;
+- campaign enrollment;
+- paid-provider calls;
+- canonical business mutations beyond the explicitly requested ingestion
+  operation.
+
+Every consequential action MUST be represented by an explicit workflow or
+contract.
+
+---
+
+## 10. Frontend agnosticism
+
+Documented public chat and ingestion APIs are the supported contracts.
+
+Frontend-specific behavior MUST NOT be implemented in Core.
+
+WebUI, Open WebUI, custom applications, and future interfaces MUST remain
+replaceable without requiring changes to Core semantics.
+
+Gateway MAY adapt public frontend contracts to Core contracts, but it MUST NOT
+make Core depend on a specific frontend.
+
+---
+
+## 11. Model and provider agnosticism
+
+Providers and models MUST be selected through validated configuration and
+provider-neutral interfaces.
+
+Model routing MUST NOT be inferred from:
+
+- arbitrary user content;
+- user-provided custom metadata;
+- model-generated suggestions;
+- untrusted request fields.
+
+The currently accepted reranker policy is deployment-global, as defined by
+the governing ADR.
+
+Introducing tenant-specific, KB-specific, user-specific, or request-specific
+reranker selection requires:
+
+- an ADR;
+- explicit security and residency analysis;
+- cache-isolation analysis;
+- compatibility assessment;
+- deterministic tests;
+- operational acceptance.
+
+Model failure MUST NOT silently route confidential data to a provider, region,
+or endpoint that is disallowed by the active policy.
+
+---
+
+## 12. Compatibility is additive
+
+Existing supported public API clients MUST continue to work unchanged within
+their declared compatibility window.
+
+New capabilities MUST be additive and versioned.
+
+Breaking changes require:
+
+- a new explicitly versioned contract;
+- a migration path;
+- documented deprecation;
+- compatibility tests;
+- operational acceptance.
+
+A public contract MUST NOT be broken in place merely because all in-tree
+clients have been updated.
+
+---
+
+# Part II: Architecture law
+
+## 13. LangChain-free Core
+
+Retriva Core MUST NOT depend on LangChain.
+
+A proposal to introduce LangChain requires a constitution amendment rather
+than an ordinary ADR.
+
+Extensions MUST NOT introduce a hidden LangChain dependency into Core through
+shared packages or runtime coupling.
+
+---
+
+## 14. Vendor-neutral public contracts
+
+Public and extension-facing models MUST use storage-neutral, provider-neutral
+contracts.
+
+Vendor-specific types, including the following, MUST NOT leak into public
+APIs or extension SDK and SPI contracts:
+
+- Qdrant payload objects;
+- Neo4j or Memgraph driver types;
+- PostgreSQL driver objects;
+- cloud-provider SDK responses;
+- model-provider request or response objects.
+
+Storage and provider backends MUST be accessed through explicit protocols or
+interfaces so they can be changed without altering public contracts.
+
+---
+
+## 15. Internal fields do not become public implicitly
+
+Internal diagnostic, ranking, provider, cost, and provenance fields MUST NOT
+become public API merely because an internal dictionary or model is
+serialized.
+
+Public response construction MUST use:
+
+- explicit allowlists;
+- typed public contracts;
+- deliberate mapping functions.
+
+Raw internal dictionaries MUST NOT be passed directly to public response
+models unless the contract explicitly allows every field.
+
+---
+
+## 16. Ingestion converges on Core
+
+Static, dynamic, connector-driven, and import-driven document ingestion MUST
+enter through canonical Gateway and Core ingestion contracts.
+
+No component outside Core may independently implement canonical:
+
+- chunking;
+- embedding;
+- vector upsert;
+- document-catalog semantics;
+- deletion semantics;
+- retrieval metadata propagation.
+
+Connectors are source adapters. They fetch, normalize, map metadata, preserve
+source identity, and submit through canonical contracts.
+
+---
+
+## 17. Extensions extend, never fork
+
+Extensions MUST register capabilities through `RETRIVA_EXTENSIONS` and
+approved registries.
+
+Extension vocabularies MUST be namespaced, for example:
+
+- `retriva:`
+- `crm:`
+- provider-specific prefixes.
+
+Extensions MUST use Core-owned shared services rather than reimplementing
+canonical services such as identity resolution or document ingestion.
+
+The first implementation of a capability MUST NOT become an architectural
+special case. Future connectors and extensions MUST fit the same contract or
+amend the contract transparently.
+
+---
+
+## 18. Optional capabilities are safe by default
+
+New optional capabilities MUST ship disabled by default.
+
+When disabled, established behavior MUST remain unchanged.
+
+When enabled, optional capability failures MUST be isolated according to the
+accepted specification.
+
+For example, optional graph-indexing failure MUST NOT corrupt or roll back a
+successful vector ingestion unless the governing specification explicitly
+requires atomic behavior.
+
+Changing an accepted optional capability to enabled by default requires:
+
+- an ADR;
+- compatibility analysis;
+- privacy and resource-impact analysis;
+- rollback capability;
+- operational acceptance.
+
+---
+
+## 19. Identifier ownership is explicit
+
+Identifier ownership MUST be documented.
+
+At minimum:
+
+- Core owns `doc_id`, collections, and `kb_id` tags.
+- Gateway owns mappings between public or UI identifiers and Core
+  identifiers.
+- PostgreSQL business domains own their canonical relational identifiers as
+  declared by ADR.
+- External source identifiers remain namespaced by source system.
+
+No component may infer, reconstruct, or repurpose another component's
+internal identifiers.
+
+Identifiers MUST be treated as opaque unless their contract explicitly
+defines structure and parsing semantics.
+
+---
+
+## 20. Every store of record is declared
+
+Each persistent store MUST have an explicit ownership boundary documented by
+ADR.
+
+Currently:
+
+- Qdrant is the vector system of record.
+- PostgreSQL is the authoritative relational store for business identity,
+  lifecycle, import, campaign, qualification, and audit domains when declared
+  by the applicable ADR.
+- Artifact storage owns uploaded source files and generated artifacts
+  according to retention policy.
+
+Introducing a persistent store or changing the ownership of existing data
+requires:
+
+- an ADR;
+- backup and restore design;
+- migration design;
+- tenant-isolation analysis;
+- deletion semantics;
+- operational acceptance.
+
+The same authoritative fact MUST NOT have two permanent systems of record.
+
+---
+
+# Part III: Data and knowledge law
+
+## 21. Assertions, not unqualified facts
+
+LLM-extracted knowledge MUST be modeled as evidence-backed assertions rather
+than unqualified facts.
+
+Assertions MUST support:
+
+- confidence;
+- provenance;
+- observation time;
+- temporal validity;
+- lifecycle status;
+- attribution status.
+
+Applicable lifecycle states SHOULD include:
+
+- active;
+- superseded;
+- retracted;
+- invalidated;
+- disputed.
+
+Conflicting assertions MUST be preserved. They MUST NOT be silently
+overwritten.
+
+Accepted current values MUST remain traceable to the observations and
+decisions that established them.
+
+---
+
+## 22. Mandatory provenance
+
+Every entity, assertion, relationship, qualification result, provider
+resource, and retrievable result MUST be traceable to its authorized source.
+
+Chat answers MUST carry citations where the response contract supports them.
+
+Business imports MUST preserve source lineage such as:
+
+- source system;
+- source file;
+- import batch;
+- source row;
+- source field;
+- mapping version;
+- decision.
+
+A result without required evidence or provenance references is a defect.
+
+---
+
+## 23. One logical graph per knowledge boundary
+
+Each `(collection, kb_id)` scope has one logical graph.
+
+Extensions MAY add namespaced semantic overlays to that graph.
+
+Extensions MUST NOT create independent semantic graph silos that fragment the
+same knowledge boundary.
+
+Physical storage MAY vary by backend, but the logical ownership and
+authorization boundary MUST remain singular and explicit.
+
+---
+
+## 24. System metadata and custom user metadata are distinct
+
+System-owned metadata is typed and interpreted according to versioned
+contracts.
+
+System-owned metadata includes:
+
+- tenant identity;
+- collection;
+- KB identity;
+- document identity;
+- lifecycle;
+- provenance;
+- authorization;
+- security;
+- source identity.
+
+User-provided custom metadata is accepted as data, persisted at document
+level, propagated according to the ingestion contract, and exposed for
+authorized filtering and citation.
+
+Core MUST NOT:
+
+- assign hidden semantics to custom metadata;
+- derive authorization policy from custom metadata;
+- route providers based on custom metadata;
+- reinterpret custom metadata as system metadata.
+
+A custom field may become system-interpreted only through a namespaced,
+versioned contract and compatibility process.
+
+---
+
+## 25. Web evidence is never a search snippet
+
+Search snippets are URL-discovery aids only.
+
+An authoritative web evidence item requires:
+
+- controlled source retrieval;
+- normalized extraction;
+- source URL;
+- retrieval timestamp;
+- content hash;
+- attribution;
+- applicable freshness or lifecycle status.
+
+Evidence lifecycle MUST distinguish at least:
+
+- session-only evidence;
+- persistent evidence admitted through standard ingestion and indexing.
+
+Persistent admission MUST use the canonical ingestion contracts.
+
+---
+
+## 26. Data movement is idempotent and resumable
+
+Every synchronization, retry, import, and crash-recovery path MUST use stable
+source identity.
+
+Stable source identity SHOULD include:
+
+- source item ID;
+- source revision;
+- source namespace;
+- content hash where appropriate.
+
+Processing the same source item twice MUST NOT duplicate or lose canonical
+data.
+
+Long-running operations MUST use checkpoints when practical.
+
+Cancellation MUST be cooperative.
+
+Retry behavior MUST be bounded and MUST NOT multiply provider calls or
+business mutations.
+
+---
+
+## 27. Initial synchronization is completeness-safe
+
+For sources supporting watermarks or deltas, initial synchronization MUST use
+an algorithm equivalent to:
+
+1. capture baseline start watermark;
+2. perform full baseline scan;
+3. apply catch-up delta from the watermark;
+4. save checkpoint;
+5. activate only after catch-up completes.
+
+For sources without reliable delta semantics, the connector specification
+MUST define an equivalent no-gap activation protocol and prove it through
+acceptance tests.
+
+A source in baseline, catch-up, initialization, or reconciliation MUST NOT
+present itself as complete.
+
+---
+
+## 28. Deletion is explicit
+
+Remote deletion MUST default to soft deletion or deactivation unless a
+governing policy explicitly requires hard deletion.
+
+Hard deletion requires:
+
+- explicit policy;
+- authorization;
+- audit;
+- propagation design;
+- treatment of derived data;
+- confirmation or retention-rule enforcement.
+
+Deletion MUST NOT be inferred from temporary source unavailability.
+
+---
+
+## 29. Data minimization is mandatory
+
+Only data required for the declared workflow may be:
+
+- parsed;
+- transmitted;
+- staged;
+- persisted;
+- indexed;
+- sent to a model;
+- included in an artifact.
+
+Out-of-scope sensitive fields MUST be discarded or redacted before they enter
+general-purpose staging, logging, model, or audit surfaces.
+
+Data ignored for privacy reasons MAY retain only safe structural metadata such
+as:
+
+- record type;
+- source row;
+- ignored status;
+- redaction reason.
+
+---
+
+## 30. Business-critical mutations are auditable
+
+Business stores MUST keep append-oriented audit trails.
+
+Risky operations require explicit review or approval according to governing
+policy, including:
+
+- identity merges;
+- role changes;
+- exclusions;
+- canonical imports;
+- qualification lifecycle transitions;
+- campaign-audience commits;
+- paid-provider requests.
+
+Analysis and proposal generation MUST NOT mutate canonical business state.
+
+A canonical or destructive mutation requires:
+
+- validated identity;
+- authorization;
+- approved state where applicable;
+- explicit intent;
+- idempotency;
+- transactional execution;
+- reconciliation;
+- audit.
+
+---
+
+# Part IV: Security and privacy law
+
+## 31. Data sovereignty by design
+
+On-premises, hybrid, EU-restricted, sovereign-cloud, and confidential-
+computing deployments are first-class architectural models.
+
+No component may assume:
+
+- a trusted third-party cloud;
+- permission to send data outside the customer boundary;
+- permission to use a global endpoint;
+- permission to cross regions;
+- permission to retain provider data.
+
+Regional requirements MUST be enforced by endpoint, provider, configuration,
+or platform policy.
+
+Failure of an allowed regional route MUST NOT trigger fallback to a
+disallowed endpoint, provider, or region.
+
+---
+
+## 32. Security trimming before return
+
+No record or derived result may cross an unauthorized tenant, knowledge, or
+business-data boundary.
+
+This includes:
+
+- documents;
+- chunks;
+- embeddings;
+- graph objects;
+- assertions;
+- relationships;
+- organizations;
+- identifiers;
+- addresses;
+- campaign records;
+- qualification records;
+- import records;
+- provider resources;
+- audit events.
+
+Authorization filters MUST be applied in the authoritative store query or
+before materialization into an externally visible result.
+
+Filtering only after an unauthorized result has been assembled is
+insufficient.
+
+Every tenant-owned persistent record MUST carry `tenant_id` from its first
+migration.
+
+---
+
+## 33. No content leakage into operational surfaces
+
+Document content, retrieved chunks, prompts, answers, evidence bodies,
+embedding vectors, and raw provider exceptions MUST NOT appear in:
+
+- logs;
+- metrics;
+- traces;
+- health endpoints;
+- exception messages;
+- crash reports;
+- uncontrolled build outputs;
+- uncontrolled test artifacts.
+
+User-authorized product records and exports MAY contain content only where
+their declared schema and purpose require it.
+
+Such records inherit:
+
+- tenant isolation;
+- authorization;
+- retention;
+- deletion;
+- encryption;
+- audit requirements.
+
+Sanitization MUST occur before data crosses into operational or observability
+surfaces.
+
+Diagnostic identifiers MUST be opaque, redacted, or hashed where necessary.
+
+---
+
+## 34. Secrets are referenced, never stored
+
+Credentials MUST come from:
+
+- environment variables;
+- mounted secret files;
+- secret backends;
+- workload identity;
+- another approved secret mechanism.
+
+Persistent records MUST store only secret references when persistence is
+needed.
+
+Secrets MUST NOT appear in:
+
+- database payloads;
+- checkpoints;
+- state files;
+- telemetry;
+- logs;
+- exception messages;
+- URL query strings;
+- browser storage;
+- run summaries;
+- artifacts.
+
+Provider cache fingerprints MUST exclude secret values.
+
+---
+
+## 35. Egress is bounded and SSRF-safe
+
+Outbound retrieval MUST enforce:
+
+- protocol restrictions;
+- domain allow and block policies;
+- DNS and IP validation;
+- redirect limits;
+- private-address protections;
+- size limits;
+- time limits;
+- rate limits;
+- content-type checks;
+- bounded retries.
+
+No arbitrary URL crawling is permitted.
+
+Provider-neutral fetch contracts MUST be used where applicable.
+
+---
+
+## 36. AuthN/AuthZ is pluggable; insecure exposure is forbidden
+
+Identity-provider integration is provided through extensions or deployment
+configuration.
+
+Core remains provider-agnostic.
+
+A no-auth mode MAY be supported only as an explicit local-development or
+otherwise isolated deployment profile.
+
+No-auth mode:
+
+- MUST bind to a restricted network boundary;
+- MUST be identified clearly in health and startup output;
+- MUST NOT be the implicit production default;
+- MUST NOT disable store-level tenant isolation.
+
+Tenant isolation, database security, service-to-service authorization, and
+network-boundary requirements remain applicable regardless of identity
+provider.
+
+Trusted service identity MUST NOT rely solely on an externally forgeable
+header.
+
+---
+
+# Part V: Verification law
+
+## 37. Done means accepted, not code-complete
+
+A feature is done only when its acceptance criteria pass.
+
+Code completion is not acceptance.
+
+Operational acceptance is a separate mandatory gate and MUST include, where
+applicable:
+
+- a live run through the deployed interface;
+- representative data;
+- inspection through authoritative stores;
+- persistence across container recreation;
+- repeated execution proving semantic idempotency;
+- failure-path validation;
+- reconciliation.
+
+A feature MUST NOT be called operationally complete based only on unit tests
+or local service calls.
+
+---
+
+## 38. Phase gating
+
+The next implementation phase MUST NOT begin until the current phase's
+required acceptance gate passes.
+
+Code-complete status does not unlock the next phase.
+
+A phase MAY proceed in parallel only when the accepted plan explicitly proves
+that the phases do not depend on one another and do not weaken rollback or
+acceptance.
+
+---
+
+## 39. Every requirement is testable
+
+Functional and non-functional requirements MUST have verifiable acceptance
+criteria.
+
+Deterministic tests are the default.
+
+They SHOULD use:
+
+- mock providers;
+- deterministic fakes;
+- recorded fixtures;
+- containerized PostgreSQL;
+- controlled Qdrant instances.
+
+Tests that access real external providers MUST be:
+
+- explicitly marked;
+- opt-in;
+- excluded from ordinary deterministic CI;
+- based on non-confidential synthetic data;
+- cost-bounded;
+- region-bounded where required.
+
+---
+
+## 40. Regressions are protected
+
+Existing accepted tests MUST continue to pass.
+
+Intentional behavior changes MUST update:
+
+- specification;
+- architecture where applicable;
+- implementation;
+- tests;
+- documentation.
+
+Changes affecting parsing, chunking, embedding, retrieval, or multilingual
+behavior MUST rerun applicable bilingual and cross-language regression
+validation.
+
+Baseline failures MUST be identified explicitly. New changes MUST NOT hide
+new failures inside an existing failure count.
+
+---
+
+## 41. Internal observability stays internal
+
+Debug endpoints, profilers, internal status endpoints, and diagnostic fields
+are not public APIs.
+
+They MUST:
+
+- remain bounded;
+- remain sanitized;
+- disclose no secrets or content;
+- be protected by network or authorization boundaries appropriate to the
+  deployment;
+- never become an implicit compatibility contract.
+
+Publishing an internal service port is a security-relevant deployment
+decision and MUST be documented.
+
+---
+
+# Part VI: Change-process law
+
+## 42. Spec before code
+
+Substantial work MUST begin with a numbered, self-contained specification
+pack.
+
+A standard pack contains:
+
+```text
+specs/NNN-name/
+    spec.md
+    architecture.md
+    plan.md
+    tasks.md
+    acceptance.md
+    openapi.yaml, when the public API changes
+```
