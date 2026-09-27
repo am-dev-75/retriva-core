@@ -8,7 +8,7 @@ info:
     The Core runs as two processes:
     * **Ingestion API** (port 8000): Document processing pipeline, metadata, jobs, artifacts.
     * **OpenAI Chat API** (port 8001): OpenAI-compatible `/v1/chat/completions` for RAG.
-  version: 1.0.0-rc4
+  version: 1.5.1
   contact:
     name: Andrea Marson
     email: am.dev.75@gmail.com
@@ -44,6 +44,14 @@ tags:
   - name: Internal
     description: Debugging and observability endpoints
 
+  - name: crm-archive
+  - name: crm-assistant
+  - name: crm-campaigns
+  - name: crm-erp-identity
+  - name: crm-imports
+  - name: crm-postgres
+  - name: v2-sessions
+  - name: internal
 paths:
   # --- Ingestion v1 (legacy) API ---
   /api/v1/ingest/text:
@@ -978,6 +986,4441 @@ paths:
                   version: { type: string }
                   api_v1: { type: string }
                   api_v2: { type: string }
+  /api/v2/crm/acp/{kb_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Icp
+      description: Build and return the current ACP family for a KB.
+      operationId: get_icp_api_v2_crm_acp__kb_id__get
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/acp/{kb_id}/text:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Icp Text
+      description: Get the user-edited ACP text for a KB (deprecated path).
+      operationId: get_icp_text_api_v2_crm_acp__kb_id__text_get
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - crm-assistant
+      summary: Save Icp Text
+      description: Save user-edited ACP text (deprecated path).
+      operationId: save_icp_text_api_v2_crm_acp__kb_id__text_put
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlobalVarSaveRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/acp/{kb_id}/update:
+    post:
+      tags:
+      - crm-assistant
+      summary: Update Icp From Kb
+      description: 'Rebuild the ACP from KB documents tagged
+
+        ''type: dept_sales_potential_customer'' (ACP reference organizations)
+
+        and save the resulting text as the new ACP global variable.'
+      operationId: update_icp_from_kb_api_v2_crm_acp__kb_id__update_post
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/artifacts/{artifact_id}/content:
+    get:
+      tags:
+      - crm-archive
+      summary: Read Archived Artifact
+      description: 'Download archived artifact bytes (SHA-256 verified on
+
+        retrieval; Content-Disposition carries the original filename).'
+      operationId: read_archived_artifact_api_v2_crm_archive_artifacts__artifact_id__content_get
+      parameters:
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Artifact Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts:
+    get:
+      tags:
+      - crm-archive
+      summary: List Drafts
+      description: Cross-job draft queue (tenant-scoped).
+      operationId: list_drafts_api_v2_crm_archive_drafts_get
+      parameters:
+      - name: review_status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Review Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts/{draft_id}:
+    get:
+      tags:
+      - crm-archive
+      summary: Get Archived Draft
+      description: Full review detail for one durable assessment draft.
+      operationId: get_archived_draft_api_v2_crm_archive_drafts__draft_id__get
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts/{draft_id}/approve:
+    post:
+      tags:
+      - crm-archive
+      summary: Approve Archived Draft
+      description: 'Approve an ARCHIVED assessment draft (no in-memory source job
+
+        required).  Promotes the draft into the intelligence store and
+
+        applies the APPROVED transition (transactional supersession of the
+
+        previous approved revision included).'
+      operationId: approve_archived_draft_api_v2_crm_archive_drafts__draft_id__approve_post
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftApproveRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts/{draft_id}/reject:
+    post:
+      tags:
+      - crm-archive
+      summary: Reject Archived Draft
+      description: Reject an ARCHIVED assessment draft (explicit reason required).
+      operationId: reject_archived_draft_api_v2_crm_archive_drafts__draft_id__reject_post
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftRejectRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts/{draft_id}/request-research:
+    post:
+      tags:
+      - crm-archive
+      summary: Request Research For Draft
+      description: 'Create an explicit, structured research request from review
+
+        (machine-readable: gaps, provider constraints, cost ceiling, mode).'
+      operationId: request_research_for_draft_api_v2_crm_archive_drafts__draft_id__request_research_post
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftResearchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs:
+    get:
+      tags:
+      - crm-archive
+      summary: List Archived Jobs
+      description: List archived jobs (tenant-scoped; filter/sort/paginate).
+      operationId: list_archived_jobs_api_v2_crm_archive_jobs_get
+      parameters:
+      - name: session_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      - name: state
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: State
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: order
+        in: query
+        required: false
+        schema:
+          type: string
+          default: desc
+          title: Order
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}:
+    get:
+      tags:
+      - crm-archive
+      summary: Get Archived Job
+      description: 'Durable record of one terminal job (audit metadata + bindings +
+
+        archive status).'
+      operationId: get_archived_job_api_v2_crm_archive_jobs__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/artifacts:
+    get:
+      tags:
+      - crm-archive
+      summary: List Archived Artifacts
+      description: Durable artifact metadata for one archived job.
+      operationId: list_archived_artifacts_api_v2_crm_archive_jobs__job_id__artifacts_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/candidates/{candidate_id}:
+    get:
+      tags:
+      - crm-archive
+      summary: Get Archived Candidate
+      description: Durable candidate-level result revision.
+      operationId: get_archived_candidate_api_v2_crm_archive_jobs__job_id__candidates__candidate_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Candidate Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/drafts:
+    get:
+      tags:
+      - crm-archive
+      summary: List Archived Drafts
+      description: 'List durable assessment drafts for one archived job (approval
+
+        is candidate-specific; never the whole workbook as one unit).'
+      operationId: list_archived_drafts_api_v2_crm_archive_jobs__job_id__drafts_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: review_status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Review Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/lineage:
+    get:
+      tags:
+      - crm-archive
+      summary: Get Archived Lineage
+      description: Retry lineage (retry-of chain and retries of this job).
+      operationId: get_archived_lineage_api_v2_crm_archive_jobs__job_id__lineage_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/results:
+    get:
+      tags:
+      - crm-archive
+      summary: Get Archived Job Results
+      description: 'Archived canonical results (same payload shape as the live
+
+        results endpoint, ``archived: true``).'
+      operationId: get_archived_job_results_api_v2_crm_archive_jobs__job_id__results_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/retry:
+    post:
+      tags:
+      - crm-archive
+      summary: Retry Archived Job
+      description: 'Start a NEW qualification job retrying an archived job.
+
+
+        Uses the archived job''s session/attachment/KB by default (the
+
+        attachment must still be resolvable; otherwise 409 with an explicit
+
+        reason).  The archived job itself is never mutated; the new job
+
+        records the retry lineage.'
+      operationId: retry_archived_job_api_v2_crm_archive_jobs__job_id__retry_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveRetryRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/research-requests:
+    get:
+      tags:
+      - crm-archive
+      summary: List Research Requests
+      operationId: list_research_requests_api_v2_crm_archive_research_requests_get
+      parameters:
+      - name: status_filter
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status Filter
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/schema:
+    get:
+      tags:
+      - crm-archive
+      summary: Archive Schema Status
+      description: Archive schema revision status.
+      operationId: archive_schema_status_api_v2_crm_archive_schema_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/campaigns:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Create Campaign
+      operationId: create_campaign_api_v2_crm_campaigns_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCampaignRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create Campaign Api V2 Crm Campaigns Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - crm-campaigns
+      summary: List Campaigns
+      operationId: list_campaigns_api_v2_crm_campaigns_get
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: family
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Family
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Campaigns Api V2 Crm Campaigns Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/console:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Console Page
+      operationId: console_page_api_v2_crm_campaigns_console_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/v2/crm/campaigns/health:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Campaigns Health
+      operationId: campaigns_health_api_v2_crm_campaigns_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Campaigns Health Api V2 Crm Campaigns Health Get
+
+  /api/v2/crm/campaigns/import-history:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Import History
+      description: Stage a CAMPAIGN_COMPANY_HISTORY_V1 workbook for review.
+      operationId: import_history_api_v2_crm_campaigns_import_history_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_import_history_api_v2_crm_campaigns_import_history_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Import History Api V2 Crm Campaigns Import History Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/import-history-attachment:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Import History Attachment
+      description: Stage a session-attached campaign-history workbook (chat path).
+      operationId: import_history_attachment_api_v2_crm_campaigns_import_history_attachment_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportHistoryAttachmentRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Import History Attachment Api V2 Crm Campaigns Import History Attachment
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/metrics:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Campaigns Metrics
+      description: Bounded-cardinality operational metrics snapshot.
+      operationId: campaigns_metrics_api_v2_crm_campaigns_metrics_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Campaigns Metrics Api V2 Crm Campaigns Metrics Get
+
+  /api/v2/crm/campaigns/organizations/{organization_id}/exclusion-proposals:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Propose Exclusion
+      operationId: propose_exclusion_api_v2_crm_campaigns_organizations__organization_id__exclusion_proposals_post
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExclusionProposalRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Propose Exclusion Api V2 Crm Campaigns Organizations  Organization Id  Exclusion
+                  Proposals Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/organizations/{organization_id}/history:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Organization History
+      operationId: organization_history_api_v2_crm_campaigns_organizations__organization_id__history_get
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Organization History Api V2 Crm Campaigns Organizations  Organization Id  History
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/organizations/{organization_id}/history-page:
+    get:
+      tags:
+      - crm-campaigns
+      summary: History Page
+      operationId: history_page_api_v2_crm_campaigns_organizations__organization_id__history_page_get
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/organizations/{organization_id}/history/report.md:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Organization History Md
+      operationId: organization_history_md_api_v2_crm_campaigns_organizations__organization_id__history_report_md_get
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/organizations/{organization_id}/history/report.xlsx:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Organization History Xlsx
+      operationId: organization_history_xlsx_api_v2_crm_campaigns_organizations__organization_id__history_report_xlsx_get
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/organizations/{organization_id}/last-addressed:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Organization Last Addressed
+      operationId: organization_last_addressed_api_v2_crm_campaigns_organizations__organization_id__last_addressed_get
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Organization Last Addressed Api V2 Crm Campaigns Organizations  Organization
+                  Id  Last Addressed Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/permissions:
+    get:
+      tags:
+      - crm-campaigns
+      summary: List Permissions
+      operationId: list_permissions_api_v2_crm_campaigns_permissions_get
+      parameters:
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Permissions Api V2 Crm Campaigns Permissions Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/permissions/grant:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Grant Permission
+      operationId: grant_permission_api_v2_crm_campaigns_permissions_grant_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Grant Permission Api V2 Crm Campaigns Permissions Grant Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/permissions/revoke:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Revoke Permission
+      operationId: revoke_permission_api_v2_crm_campaigns_permissions_revoke_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Revoke Permission Api V2 Crm Campaigns Permissions Revoke Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/selection-runs/{run_id}:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Get Run
+      operationId: get_run_api_v2_crm_campaigns_selection_runs__run_id__get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: decision
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Decision
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Run Api V2 Crm Campaigns Selection Runs  Run Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/selection-runs/{run_id}/approve:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Approve Run
+      operationId: approve_run_api_v2_crm_campaigns_selection_runs__run_id__approve_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveRunRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Approve Run Api V2 Crm Campaigns Selection Runs  Run Id  Approve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/selection-runs/{run_id}/commit:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Commit Run
+      operationId: commit_run_api_v2_crm_campaigns_selection_runs__run_id__commit_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommitRunRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Commit Run Api V2 Crm Campaigns Selection Runs  Run Id  Commit Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/selection-runs/{run_id}/report:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Run Report
+      operationId: run_report_api_v2_crm_campaigns_selection_runs__run_id__report_get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Run Report Api V2 Crm Campaigns Selection Runs  Run Id  Report Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/selection-runs/{run_id}/report.md:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Run Report Md
+      operationId: run_report_md_api_v2_crm_campaigns_selection_runs__run_id__report_md_get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/selection-runs/{run_id}/report.xlsx:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Run Report Xlsx
+      operationId: run_report_xlsx_api_v2_crm_campaigns_selection_runs__run_id__report_xlsx_get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/selection-runs/{run_id}/resolve:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Resolve Result
+      operationId: resolve_result_api_v2_crm_campaigns_selection_runs__run_id__resolve_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveResultRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Resolve Result Api V2 Crm Campaigns Selection Runs  Run Id  Resolve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/selection-runs/{run_id}/review:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Run Review Page
+      operationId: run_review_page_api_v2_crm_campaigns_selection_runs__run_id__review_get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Get Campaign
+      operationId: get_campaign_api_v2_crm_campaigns__campaign_ref__get
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Campaign Api V2 Crm Campaigns  Campaign Ref  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - crm-campaigns
+      summary: Update Campaign
+      operationId: update_campaign_api_v2_crm_campaigns__campaign_ref__patch
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCampaignRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Update Campaign Api V2 Crm Campaigns  Campaign Ref  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/audience:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Audience Page
+      operationId: audience_page_api_v2_crm_campaigns__campaign_ref__audience_get
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/companies:
+    get:
+      tags:
+      - crm-campaigns
+      summary: List Companies
+      operationId: list_companies_api_v2_crm_campaigns__campaign_ref__companies_get
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Companies Api V2 Crm Campaigns  Campaign Ref  Companies Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - crm-campaigns
+      summary: Associate Company
+      operationId: associate_company_api_v2_crm_campaigns__campaign_ref__companies_post
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssociateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Associate Company Api V2 Crm Campaigns  Campaign Ref  Companies Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/companies/{organization_id}:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Get Membership
+      operationId: get_membership_api_v2_crm_campaigns__campaign_ref__companies__organization_id__get
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Membership Api V2 Crm Campaigns  Campaign Ref  Companies  Organization
+                  Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/companies/{organization_id}/addressed:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Mark Addressed
+      operationId: mark_addressed_api_v2_crm_campaigns__campaign_ref__companies__organization_id__addressed_post
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkAddressedRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Mark Addressed Api V2 Crm Campaigns  Campaign Ref  Companies  Organization
+                  Id  Addressed Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/companies/{organization_id}/events:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Record Event
+      operationId: record_event_api_v2_crm_campaigns__campaign_ref__companies__organization_id__events_post
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Record Event Api V2 Crm Campaigns  Campaign Ref  Companies  Organization
+                  Id  Events Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/companies/{organization_id}/outcome:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Update Outcome
+      operationId: update_outcome_api_v2_crm_campaigns__campaign_ref__companies__organization_id__outcome_post
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutcomeRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Update Outcome Api V2 Crm Campaigns  Campaign Ref  Companies  Organization
+                  Id  Outcome Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/relationships:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Add Relationship
+      operationId: add_relationship_api_v2_crm_campaigns__campaign_ref__relationships_post
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelationshipRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Add Relationship Api V2 Crm Campaigns  Campaign Ref  Relationships Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - crm-campaigns
+      summary: List Relationships
+      operationId: list_relationships_api_v2_crm_campaigns__campaign_ref__relationships_get
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Relationships Api V2 Crm Campaigns  Campaign Ref  Relationships Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/selection-runs:
+    post:
+      tags:
+      - crm-campaigns
+      summary: Analyze Audience
+      operationId: analyze_audience_api_v2_crm_campaigns__campaign_ref__selection_runs_post
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeAudienceRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Analyze Audience Api V2 Crm Campaigns  Campaign Ref  Selection Runs Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/campaigns/{campaign_ref}/was-addressed/{organization_id}:
+    get:
+      tags:
+      - crm-campaigns
+      summary: Was Addressed
+      operationId: was_addressed_api_v2_crm_campaigns__campaign_ref__was_addressed__organization_id__get
+      parameters:
+      - name: campaign_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Campaign Ref
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Was Addressed Api V2 Crm Campaigns  Campaign Ref  Was Addressed  Organization
+                  Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/cco/{kb_id}/text:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Cco Text
+      description: Get the user-edited CCO (Company Commercial Offering) text for a KB.
+      operationId: get_cco_text_api_v2_crm_cco__kb_id__text_get
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - crm-assistant
+      summary: Save Cco Text
+      description: Save user-edited CCO text.
+      operationId: save_cco_text_api_v2_crm_cco__kb_id__text_put
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlobalVarSaveRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/cco/{kb_id}/update:
+    post:
+      tags:
+      - crm-assistant
+      summary: Update Cco From Kb
+      description: 'Rebuild the CCO (Offering Portfolio) from KB documents tagged
+
+        ''type: dept_sales_offering'' and save the resulting text as the new CCO global variable.'
+      operationId: update_cco_from_kb_api_v2_crm_cco__kb_id__update_post
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/erp/health:
+    get:
+      tags:
+      - crm-erp-identity
+      summary: Erp Identity Health
+      operationId: erp_identity_health_api_v2_crm_erp_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Erp Identity Health Api V2 Crm Erp Health Get
+
+  /api/v2/crm/erp/imports/analyze:
+    post:
+      tags:
+      - crm-erp-identity
+      summary: Analyze Erp Export
+      description: 'Stage a hierarchical ERP customer TXT export for review.
+
+
+        Analysis only — canonical writes require human approval and a
+
+        separate commit.  Contact and banking payloads (C/R records) are
+
+        never persisted.'
+      operationId: analyze_erp_export_api_v2_crm_erp_imports_analyze_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_analyze_erp_export_api_v2_crm_erp_imports_analyze_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Analyze Erp Export Api V2 Crm Erp Imports Analyze Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/erp/organizations/by-customer-code:
+    get:
+      tags:
+      - crm-erp-identity
+      summary: Organization By Customer Code
+      operationId: organization_by_customer_code_api_v2_crm_erp_organizations_by_customer_code_get
+      parameters:
+      - name: code
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Code
+      - name: source_system
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source System
+      - name: source_instance_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Instance Code
+      - name: dossier_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dossier Code
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Organization By Customer Code Api V2 Crm Erp Organizations By Customer Code
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/erp/organizations/{organization_id}/erp-codes:
+    get:
+      tags:
+      - crm-erp-identity
+      summary: Erp Codes For Organization
+      operationId: erp_codes_for_organization_api_v2_crm_erp_organizations__organization_id__erp_codes_get
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      - name: include_historical
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Include Historical
+      - name: source_system
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source System
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response Erp Codes For Organization Api V2 Crm Erp Organizations  Organization Id  Erp
+                  Codes Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/erp/resolve:
+    get:
+      tags:
+      - crm-erp-identity
+      summary: Resolve Record
+      operationId: resolve_record_api_v2_crm_erp_resolve_get
+      parameters:
+      - name: code
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Code
+      - name: vat_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vat Id
+      - name: tax_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tax Id
+      - name: country_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Country Code
+      - name: source_system
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source System
+      - name: source_instance_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Instance Code
+      - name: dossier_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dossier Code
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Resolve Record Api V2 Crm Erp Resolve Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/erp/source-systems:
+    get:
+      tags:
+      - crm-erp-identity
+      summary: List Source Systems
+      operationId: list_source_systems_api_v2_crm_erp_source_systems_get
+      parameters:
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Source Systems Api V2 Crm Erp Source Systems Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/global-cco/inspection:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Global Cco Inspection Endpoint
+      description: Inspection report of the active authoritative global CCO.
+      operationId: get_global_cco_inspection_endpoint_api_v2_crm_global_cco_inspection_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/global-cco/set:
+    post:
+      tags:
+      - crm-assistant
+      summary: Set Global Cco Endpoint
+      description: 'Define the authoritative global CCO from a manually authored source.
+
+
+        The source is preserved verbatim, hashed, parsed into the portfolio
+
+        hierarchy (families -> products/services/solutions/capabilities),
+
+        validated, and activated atomically only if validation passes.  The
+
+        previous active version is superseded and remains inspectable.'
+      operationId: set_global_cco_endpoint_api_v2_crm_global_cco_set_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlobalCcoSetRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalCcoSetResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/health:
+    get:
+      tags:
+      - crm-assistant
+      summary: Health
+      operationId: health_api_v2_crm_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/icp/{kb_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Icp
+      description: Build and return the current ACP family for a KB.
+      operationId: get_icp_api_v2_crm_icp__kb_id__get
+      deprecated: true
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/icp/{kb_id}/text:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Icp Text
+      description: Get the user-edited ACP text for a KB (deprecated path).
+      operationId: get_icp_text_api_v2_crm_icp__kb_id__text_get
+      deprecated: true
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - crm-assistant
+      summary: Save Icp Text
+      description: Save user-edited ACP text (deprecated path).
+      operationId: save_icp_text_api_v2_crm_icp__kb_id__text_put
+      deprecated: true
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlobalVarSaveRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/icp/{kb_id}/update:
+    post:
+      tags:
+      - crm-assistant
+      summary: Update Icp From Kb
+      description: 'Rebuild the ACP from KB documents tagged
+
+        ''type: dept_sales_potential_customer'' (ACP reference organizations)
+
+        and save the resulting text as the new ACP global variable.'
+      operationId: update_icp_from_kb_api_v2_crm_icp__kb_id__update_post
+      deprecated: true
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalVarResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/analyze:
+    post:
+      tags:
+      - crm-imports
+      summary: Analyze
+      description: 'analyze_company_import over a session attachment (chat path).
+
+
+        Hierarchical ERP TXT exports (semicolon-delimited .txt/.csv) are
+
+        routed to the dedicated ERP TXT engine
+
+        (profile ERP_HIERARCHICAL_CUSTOMER_EXPORT_V1); everything else goes
+
+        to the workbook engine.'
+      operationId: analyze_api_v2_crm_imports_analyze_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Analyze Api V2 Crm Imports Analyze Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches:
+    post:
+      tags:
+      - crm-imports
+      summary: Analyze Upload
+      description: 'analyze_company_import over a direct workbook upload (API
+
+        path).  The chat tool uses /analyze; both share the engine and the
+
+        same ERP TXT routing.'
+      operationId: analyze_upload_api_v2_crm_imports_batches_post
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_analyze_upload_api_v2_crm_imports_batches_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Analyze Upload Api V2 Crm Imports Batches Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - crm-imports
+      summary: List Batches
+      operationId: list_batches_api_v2_crm_imports_batches_get
+      parameters:
+      - name: status_filter
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status Filter
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Batches Api V2 Crm Imports Batches Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}:
+    get:
+      tags:
+      - crm-imports
+      summary: Get Batch
+      operationId: get_batch_api_v2_crm_imports_batches__batch_id__get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Batch Api V2 Crm Imports Batches  Batch Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/approve:
+    post:
+      tags:
+      - crm-imports
+      summary: Approve Batch
+      operationId: approve_batch_api_v2_crm_imports_batches__batch_id__approve_post
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveBatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Approve Batch Api V2 Crm Imports Batches  Batch Id  Approve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/commit:
+    post:
+      tags:
+      - crm-imports
+      summary: Commit Batch
+      description: commit_company_import (the chat tool proxies this route).
+      operationId: commit_batch_api_v2_crm_imports_batches__batch_id__commit_post
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommitBatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Commit Batch Api V2 Crm Imports Batches  Batch Id  Commit Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/proposals:
+    get:
+      tags:
+      - crm-imports
+      summary: List Proposals
+      operationId: list_proposals_api_v2_crm_imports_batches__batch_id__proposals_get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: change_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Change Type
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1000
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Proposals Api V2 Crm Imports Batches  Batch Id  Proposals Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/proposals/{proposal_id}/approve:
+    post:
+      tags:
+      - crm-imports
+      summary: Approve Proposal
+      operationId: approve_proposal_api_v2_crm_imports_batches__batch_id__proposals__proposal_id__approve_post
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: proposal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Proposal Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActorRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Approve Proposal Api V2 Crm Imports Batches  Batch Id  Proposals  Proposal
+                  Id  Approve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/proposals/{proposal_id}/reject:
+    post:
+      tags:
+      - crm-imports
+      summary: Reject Proposal
+      operationId: reject_proposal_api_v2_crm_imports_batches__batch_id__proposals__proposal_id__reject_post
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: proposal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Proposal Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Reject Proposal Api V2 Crm Imports Batches  Batch Id  Proposals  Proposal
+                  Id  Reject Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/reconciliation:
+    get:
+      tags:
+      - crm-imports
+      summary: Get Reconciliation
+      operationId: get_reconciliation_api_v2_crm_imports_batches__batch_id__reconciliation_get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          default: json
+          title: Format
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/reject:
+    post:
+      tags:
+      - crm-imports
+      summary: Reject Batch
+      operationId: reject_batch_api_v2_crm_imports_batches__batch_id__reject_post
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Reject Batch Api V2 Crm Imports Batches  Batch Id  Reject Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/review:
+    get:
+      tags:
+      - crm-imports
+      summary: Batch Review Page
+      description: 'Server-rendered import review console (pattern of the
+
+        intelligence review page).  All data and actions flow through the
+
+        tenant-scoped, permission-gated JSON APIs above.'
+      operationId: batch_review_page_api_v2_crm_imports_batches__batch_id__review_get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/rows:
+    get:
+      tags:
+      - crm-imports
+      summary: List Rows
+      operationId: list_rows_api_v2_crm_imports_batches__batch_id__rows_get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: disposition
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Disposition
+      - name: validation
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Validation
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 500
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Rows Api V2 Crm Imports Batches  Batch Id  Rows Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/rows/{row_id}:
+    get:
+      tags:
+      - crm-imports
+      summary: Get Row
+      operationId: get_row_api_v2_crm_imports_batches__batch_id__rows__row_id__get
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: row_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Row Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Row Api V2 Crm Imports Batches  Batch Id  Rows  Row Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/rows/{row_id}/mark-new:
+    post:
+      tags:
+      - crm-imports
+      summary: Mark New
+      operationId: mark_new_api_v2_crm_imports_batches__batch_id__rows__row_id__mark_new_post
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: row_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Row Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActorRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Mark New Api V2 Crm Imports Batches  Batch Id  Rows  Row Id  Mark New Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/rows/{row_id}/reject:
+    post:
+      tags:
+      - crm-imports
+      summary: Reject Row
+      operationId: reject_row_api_v2_crm_imports_batches__batch_id__rows__row_id__reject_post
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: row_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Row Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Reject Row Api V2 Crm Imports Batches  Batch Id  Rows  Row Id  Reject Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/batches/{batch_id}/rows/{row_id}/select-match:
+    post:
+      tags:
+      - crm-imports
+      summary: Select Match
+      operationId: select_match_api_v2_crm_imports_batches__batch_id__rows__row_id__select_match_post
+      parameters:
+      - name: batch_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Id
+      - name: row_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Row Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectMatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Select Match Api V2 Crm Imports Batches  Batch Id  Rows  Row Id  Select
+                  Match Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/health:
+    get:
+      tags:
+      - crm-imports
+      summary: Imports Health
+      operationId: imports_health_api_v2_crm_imports_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Imports Health Api V2 Crm Imports Health Get
+
+  /api/v2/crm/imports/permissions:
+    get:
+      tags:
+      - crm-imports
+      summary: List Permissions
+      operationId: list_permissions_api_v2_crm_imports_permissions_get
+      parameters:
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Permissions Api V2 Crm Imports Permissions Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/permissions/grant:
+    post:
+      tags:
+      - crm-imports
+      summary: Grant Permission
+      operationId: grant_permission_api_v2_crm_imports_permissions_grant_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Grant Permission Api V2 Crm Imports Permissions Grant Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/permissions/revoke:
+    post:
+      tags:
+      - crm-imports
+      summary: Revoke Permission
+      operationId: revoke_permission_api_v2_crm_imports_permissions_revoke_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Revoke Permission Api V2 Crm Imports Permissions Revoke Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/apollo/readiness:
+    get:
+      tags:
+      - crm-assistant
+      summary: Apollo Readiness
+      description: 'Non-credit-consuming Apollo authentication readiness check (G-fix).
+
+
+        Uses Apollo''s documented ``GET /auth/health`` endpoint.  Reports ONLY:
+
+        available, credentials present, authentication succeeded, endpoint
+
+        readiness, and rate-limit information when safely available.  Never
+
+        exposes the key and never performs an enrichment call.'
+      operationId: apollo_readiness_api_v2_crm_intelligence_apollo_readiness_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/intelligence/assessments:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence List Assessments
+      description: List assessments (review queue when awaiting_review=true).
+      operationId: intelligence_list_assessments_api_v2_crm_intelligence_assessments_get
+      parameters:
+      - name: status_filter
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status Filter
+      - name: awaiting_review
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Awaiting Review
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - crm-assistant
+      summary: Intelligence Create Assessment
+      description: 'Create a DRAFT assessment from one completed job result.
+
+
+        The promotion boundary: ONE candidate only, never the workbook,
+
+        never another candidate''s evidence.  Nothing is ingested into
+
+        Qdrant or the selected KB.'
+      operationId: intelligence_create_assessment_api_v2_crm_intelligence_assessments_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntelligenceAssessmentCreateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{a_id}/compare/{b_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence Compare
+      operationId: intelligence_compare_api_v2_crm_intelligence_assessments__a_id__compare__b_id__get
+      parameters:
+      - name: a_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: A Id
+      - name: b_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: B Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{assessment_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence Get Assessment
+      description: 'Review detail: verdict, bindings, pipeline summary, evidence
+
+        provenance, claims, approvals (audit).'
+      operationId: intelligence_get_assessment_api_v2_crm_intelligence_assessments__assessment_id__get
+      parameters:
+      - name: assessment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Assessment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{assessment_id}/approve:
+    post:
+      tags:
+      - crm-assistant
+      summary: Intelligence Approve
+      description: 'Approve (or reject / revoke via approval_decision) an assessment.
+
+
+        Transitions are validated; APPROVED promotes the assessment
+
+        transactionally (supersession of the previous approved revision
+
+        included).  Human commercial decisions are stored SEPARATELY from
+
+        the pipeline verdict.'
+      operationId: intelligence_approve_api_v2_crm_intelligence_assessments__assessment_id__approve_post
+      parameters:
+      - name: assessment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Assessment Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntelligenceApprovalRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{assessment_id}/report:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence Assessment Report
+      description: 'Human-readable Markdown review report for one assessment.
+
+
+        Lets a reviewer read the same narrative produced at qualification time
+
+        (verdict, ACP fit, evidence, gaps, conflicts, reuse disclosure) without
+
+        digging through the raw JSON detail.  Reconstructed from the durable
+
+        assessment payload so it works for DRAFT and APPROVED records alike.'
+      operationId: intelligence_assessment_report_api_v2_crm_intelligence_assessments__assessment_id__report_get
+      parameters:
+      - name: assessment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Assessment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{assessment_id}/submit-review:
+    post:
+      tags:
+      - crm-assistant
+      summary: Intelligence Submit Review
+      description: DRAFT -> UNDER_REVIEW.
+      operationId: intelligence_submit_review_api_v2_crm_intelligence_assessments__assessment_id__submit_review_post
+      parameters:
+      - name: assessment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Assessment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/companies/{identity_id}/history:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence Company History
+      description: Full revision history (supersession never deletes history).
+      operationId: intelligence_company_history_api_v2_crm_intelligence_companies__identity_id__history_get
+      parameters:
+      - name: identity_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Identity Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/companies/{identity_id}/latest-approved:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence Latest Approved
+      operationId: intelligence_latest_approved_api_v2_crm_intelligence_companies__identity_id__latest_approved_get
+      parameters:
+      - name: identity_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Identity Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/metrics:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence Metrics Endpoint
+      description: 'Bounded-cardinality operational metrics (no company names, VAT
+
+        IDs, domains or assessment IDs as labels).'
+      operationId: intelligence_metrics_endpoint_api_v2_crm_intelligence_metrics_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/intelligence/request-research:
+    post:
+      tags:
+      - crm-assistant
+      summary: Request Additional Research
+      description: 'Structured request for additional research (item #2 workflow).
+
+
+        free vs paid, targeted vs full, with max cost, reviewer, reason and due
+
+        date.  Permission is checked here (PAID -> REQUEST_PAID_RESEARCH,
+
+        FREE -> REVIEW_QUALIFICATION); the durable request is recorded for
+
+        audit/review.'
+      operationId: request_additional_research_api_v2_crm_intelligence_request_research_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/intelligence/research-requests/{request_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Research Request Status
+      description: Durable status of a paid-research request (review-surface agreement).
+      operationId: research_request_status_api_v2_crm_intelligence_research_requests__request_id__get
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/research-requests/{request_id}/execute:
+    post:
+      tags:
+      - crm-assistant
+      summary: Research Request Execute
+      description: 'Execute an APPROVED paid-research request (durable, idempotent).
+
+
+        Execution authority is SEPARATE from approval permission and is bound
+
+        to a trusted service principal: the caller must present the configured
+
+        principal in the ``X-Service-Principal`` header.  ``X-User-Id`` alone
+
+        can never force execution.'
+      operationId: research_request_execute_api_v2_crm_intelligence_research_requests__request_id__execute_post
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/review:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence Review Page
+      description: 'Minimal accessible review UI (item 19): qualification review
+
+        queue, assessment detail, evidence inspection, approve / reject /
+
+        revoke actions.  A full WebUI is the documented follow-up; this page
+
+        makes the approval workflow concretely usable today.'
+      operationId: intelligence_review_page_api_v2_crm_intelligence_review_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/v2/crm/intelligence/schema:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intelligence Schema Status
+      description: Schema revision status (item 27 reporting).
+      operationId: intelligence_schema_status_api_v2_crm_intelligence_schema_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/jobs/{job_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Job Status
+      description: 'Get the status of a qualification job.
+
+
+        Milestone A: when the live in-memory job record has disappeared
+
+        (restart, container recreation) but a durable archive exists, the
+
+        ARCHIVED terminal result is returned — never a synthetic LOST
+
+        merely because process memory was cleared.'
+      operationId: get_job_status_api_v2_crm_jobs__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/jobs/{job_id}/cancel:
+    post:
+      tags:
+      - crm-assistant
+      summary: Cancel Job
+      description: 'Request cancellation of a qualification job.
+
+
+        When ``session_id`` is supplied (the chat path always supplies the
+
+        trusted session), the job must belong to that session — a foreign
+
+        session''s cancel request is rejected with 403.  Without the parameter
+
+        (operational/direct use), cancellation proceeds as before.'
+      operationId: cancel_job_api_v2_crm_jobs__job_id__cancel_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: session_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/jobs/{job_id}/results:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Job Results
+      description: 'Structured qualification results for a completed job.
+
+
+        Returns the per-candidate results (official scores in 0.0-1.0, official
+
+        verdicts, evidence, warnings) plus extraction/truncation stats and the
+
+        artifact references.  Consumed by the chat agent tool
+
+        ``get_qualification_results``.
+
+
+        Milestone A: when the live job/report is no longer in memory, the
+
+        DURABLE ARCHIVED result is returned (identical shape, ``archived:
+
+        true``) instead of 410 — results survive service recreation.'
+      operationId: get_job_results_api_v2_crm_jobs__job_id__results_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/jobs/{job_id}/retry-research:
+    post:
+      tags:
+      - crm-assistant
+      summary: Retry Research
+      description: 'Targeted research retry for incomplete candidates of a completed job.
+
+
+        Only retry-eligible candidates (transient research failure, retry
+
+        budget not exhausted) are processed.  Successful candidates are never
+
+        reprocessed; the original ACP and authoritative CCO versions are
+
+        reused; report artifacts are regenerated.'
+      operationId: retry_research_api_v2_crm_jobs__job_id__retry_research_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetryResearchRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/pg/health:
+    get:
+      tags:
+      - crm-postgres
+      summary: Pg Health
+      description: 'Cheap liveness: the store is configured or disabled.'
+      operationId: pg_health_api_v2_crm_pg_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Pg Health Api V2 Crm Pg Health Get
+
+  /api/v2/crm/pg/readiness:
+    get:
+      tags:
+      - crm-postgres
+      summary: Pg Readiness
+      description: 'Readiness: connectivity, schema revision, pending migrations,
+
+        application-role access, read-only-role access.  No credentials.'
+      operationId: pg_readiness_api_v2_crm_pg_readiness_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Pg Readiness Api V2 Crm Pg Readiness Get
+
+  /api/v2/crm/portfolio/{kb_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Get Portfolio
+      description: Build and return the current Offering Portfolio for a KB.
+      operationId: get_portfolio_api_v2_crm_portfolio__kb_id__get
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/portfolio/{kb_id}/rebuild:
+    post:
+      tags:
+      - crm-assistant
+      summary: Rebuild Portfolio
+      description: Force-rebuild the Offering Portfolio for a KB.
+      operationId: rebuild_portfolio_api_v2_crm_portfolio__kb_id__rebuild_post
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/qualify:
+    post:
+      tags:
+      - crm-assistant
+      summary: Qualify
+      description: 'Start the Prospect Discovery & Qualification workflow as a background job.
+
+
+        Duplicate-job protection: if a non-terminal job already exists for the
+
+        same (session_id, attachment_id, kb_id), that job is returned instead of
+
+        starting a second one.  A later chat turn concerning the same attachment
+
+        therefore resumes/monitors the existing job rather than duplicating it.'
+      operationId: qualify_api_v2_crm_qualify_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QualifyRequest'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QualifyResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/readiness:
+    get:
+      tags:
+      - crm-assistant
+      summary: Readiness
+      description: 'Structured preflight/readiness for the qualification pipeline.
+
+
+        Reports the GLOBAL ACP/CCO state (never KB-specific), Web Research
+
+        capability, GraphRAG availability, and whether qualification can
+
+        proceed — with explicit blocking reasons.  Consumed by the chat agent
+
+        preflight and by operational dashboards.'
+      operationId: readiness_api_v2_crm_readiness_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/sessions/{session_id}/jobs:
+    get:
+      tags:
+      - crm-assistant
+      summary: List Session Jobs
+      description: 'List qualification jobs for a chat session (session-scoped).
+
+
+        Enables cross-turn job resumption: a later chat turn can discover the
+
+        jobs of ITS OWN session server-side, without relying on the LLM
+
+        remembering job IDs from conversation text.  Only jobs of the requested
+
+        session are returned — other sessions'' jobs are never exposed.
+
+
+        Milestone A: archived terminal jobs of the session that are no
+
+        longer in the in-memory registry are merged (``archived: true``)
+
+        so resumption still finds them after restarts/recreation.'
+      operationId: list_session_jobs_api_v2_crm_sessions__session_id__jobs_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/artifacts:
+    get:
+      tags:
+      - v2-sessions
+      summary: List All Artifacts
+      description: 'Artifact index across ALL sessions (most recent first).
+
+
+        Powers the frontend artifact page: users should not need to know
+
+        session IDs to find their generated reports.  Only non-expired,
+
+        non-deleted artifacts are listed.'
+      operationId: list_all_artifacts_api_v2_sessions_artifacts_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 200
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/artifacts:
+    get:
+      tags:
+      - v2-sessions
+      summary: List Artifacts
+      operationId: list_artifacts_api_v2_sessions__session_id__artifacts_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/artifacts/{artifact_id}:
+    get:
+      tags:
+      - v2-sessions
+      summary: Get Artifact
+      operationId: get_artifact_api_v2_sessions__session_id__artifacts__artifact_id__get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Artifact Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v2-sessions
+      summary: Delete Artifact
+      operationId: delete_artifact_api_v2_sessions__session_id__artifacts__artifact_id__delete
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Artifact Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/artifacts/{artifact_id}/content:
+    get:
+      tags:
+      - v2-sessions
+      summary: Download Artifact
+      operationId: download_artifact_api_v2_sessions__session_id__artifacts__artifact_id__content_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Artifact Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/attachments:
+    post:
+      tags:
+      - v2-sessions
+      summary: Upload Attachment
+      description: 'Upload a session-scoped attachment.
+
+
+        The file is validated, malware-scanned, and stored.  It is NOT parsed
+
+        yet and NOT ingested into the knowledge base.  Call the ``/parse``
+
+        endpoint to obtain a normalized parsed representation.'
+      operationId: upload_attachment_api_v2_sessions__session_id__attachments_post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_attachment_api_v2_sessions__session_id__attachments_post'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v2-sessions
+      summary: List Attachments
+      operationId: list_attachments_api_v2_sessions__session_id__attachments_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/attachments/{attachment_id}:
+    get:
+      tags:
+      - v2-sessions
+      summary: Get Attachment
+      operationId: get_attachment_api_v2_sessions__session_id__attachments__attachment_id__get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v2-sessions
+      summary: Delete Attachment
+      operationId: delete_attachment_api_v2_sessions__session_id__attachments__attachment_id__delete
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/attachments/{attachment_id}/parse:
+    post:
+      tags:
+      - v2-sessions
+      summary: Parse Attachment
+      description: 'Parse a stored attachment WITHOUT ingesting it.
+
+
+        Reuses the existing Retriva parser registry.  Returns a normalized
+
+        parsed representation (elements with source locations).'
+      operationId: parse_attachment_api_v2_sessions__session_id__attachments__attachment_id__parse_post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/attachments/{attachment_id}/parsed:
+    get:
+      tags:
+      - v2-sessions
+      summary: Get Parsed Attachment
+      description: Re-parse and return the normalized representation (idempotent).
+      operationId: get_parsed_attachment_api_v2_sessions__session_id__attachments__attachment_id__parsed_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /internal/reranker/status:
+    get:
+      tags:
+      - internal
+      summary: Get Reranker Status
+      description: 'Expose the effective global reranking configuration (secrets redacted),
+
+        provider health and in-process metrics.'
+      operationId: get_reranker_status_internal_reranker_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
 
 components:
   schemas:
@@ -1521,5 +5964,1261 @@ components:
         limit: { type: integer, default: 50 }
         is_discovery: { type: boolean, default: false }
         case_sensitive: { type: boolean, default: false }
+    # --- Schemas merged from the live OpenAPI spec (auto-sync) ---
+    ActorRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      type: object
+      title: ActorRequest
+
+    AnalyzeAudienceRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        policy_selector:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Policy Selector
+        policy_payload:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Policy Payload
+        parameters:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Parameters
+        row_limit:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Row Limit
+      type: object
+      title: AnalyzeAudienceRequest
+
+    AnalyzeRequest:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+        attachment_id:
+          type: string
+          title: Attachment Id
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        source_system:
+          type: string
+          title: Source System
+          default: erp
+        profile:
+          type: string
+          title: Profile
+          default: AUTO
+        default_country:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Default Country
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        row_limit:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Row Limit
+      type: object
+      required:
+      - session_id
+      - attachment_id
+      title: AnalyzeRequest
+
+    ApproveBatchRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        approve_pending:
+          type: boolean
+          title: Approve Pending
+          default: false
+      type: object
+      title: ApproveBatchRequest
+
+    ApproveRunRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        approved_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Approved By
+      type: object
+      title: ApproveRunRequest
+
+    ArchiveRetryRequest:
+      properties:
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+        attachment_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Attachment Id
+        kb_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Kb Id
+        reuse_policy:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reuse Policy
+      type: object
+      title: ArchiveRetryRequest
+
+    AssociateRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        organization_id:
+          type: string
+          title: Organization Id
+        status:
+          type: string
+          title: Status
+          default: CONSIDERED
+        source_system:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source System
+        source_record_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Record Id
+      type: object
+      required:
+      - organization_id
+      title: AssociateRequest
+
+    Body_analyze_erp_export_api_v2_crm_erp_imports_analyze_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        source_system:
+          type: string
+          title: Source System
+          default: ''
+        row_limit:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Row Limit
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      type: object
+      required:
+      - file
+      title: Body_analyze_erp_export_api_v2_crm_erp_imports_analyze_post
+
+    Body_analyze_upload_api_v2_crm_imports_batches_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        source_system:
+          type: string
+          title: Source System
+          default: erp
+        profile:
+          type: string
+          title: Profile
+          default: AUTO
+        default_country:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Default Country
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        row_limit:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Row Limit
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      type: object
+      required:
+      - file
+      title: Body_analyze_upload_api_v2_crm_imports_batches_post
+
+    Body_import_history_api_v2_crm_campaigns_import_history_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        source_system:
+          type: string
+          title: Source System
+          default: campaign_history
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        row_limit:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Row Limit
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      type: object
+      required:
+      - file
+      title: Body_import_history_api_v2_crm_campaigns_import_history_post
+
+    Body_upload_attachment_api_v2_sessions__session_id__attachments_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        owner:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Owner
+      type: object
+      required:
+      - file
+      title: Body_upload_attachment_api_v2_sessions__session_id__attachments_post
+
+    CommitBatchRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        idempotency_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency Key
+      type: object
+      title: CommitBatchRequest
+
+    CommitRunRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        idempotency_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency Key
+      type: object
+      title: CommitRunRequest
+
+    CreateCampaignRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        campaign_code:
+          type: string
+          title: Campaign Code
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        campaign_family:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Campaign Family
+        parent_campaign_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Parent Campaign Id
+        country_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Country Code
+        language_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language Code
+        offering_family_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Offering Family Id
+        segment_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Segment Code
+        planned_start_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Planned Start Date
+        planned_end_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Planned End Date
+        source_system:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source System
+        source_record_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Record Id
+        metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata
+      type: object
+      required:
+      - campaign_code
+      - name
+      title: CreateCampaignRequest
+
+    DraftApproveRequest:
+      properties:
+        reviewer_id:
+          type: string
+          title: Reviewer Id
+        approval_scope:
+          type: string
+          title: Approval Scope
+          default: QUALIFICATION
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+        expiration_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expiration Date
+        commercial_disposition:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Commercial Disposition
+        priority_override:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority Override
+        next_action:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Action
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      required:
+      - reviewer_id
+      title: DraftApproveRequest
+
+    DraftRejectRequest:
+      properties:
+        reviewer_id:
+          type: string
+          title: Reviewer Id
+        reason:
+          type: string
+          minLength: 1
+          title: Reason
+      type: object
+      required:
+      - reviewer_id
+      - reason
+      title: DraftRejectRequest
+
+    DraftResearchRequest:
+      properties:
+        reviewer_id:
+          type: string
+          title: Reviewer Id
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        requested_gaps:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Requested Gaps
+        provider_constraints:
+          additionalProperties: true
+          type: object
+          title: Provider Constraints
+        paid_policy:
+          type: string
+          title: Paid Policy
+          default: FREE_SOURCES_ONLY
+        max_cost:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Max Cost
+        currency:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Currency
+        due_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Due Date
+        mode:
+          type: string
+          title: Mode
+          default: TARGETED_REFRESH
+      type: object
+      required:
+      - reviewer_id
+      title: DraftResearchRequest
+      description: 'Structured, machine-readable research request (item C6): never
+
+        a free-text comment only.'
+
+    EventRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        event_type:
+          type: string
+          title: Event Type
+        event_timestamp:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Event Timestamp
+        source_system:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source System
+        source_record_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Record Id
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+        reason_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Text
+        correlation_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Correlation Id
+        metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata
+        apply_projection:
+          type: boolean
+          title: Apply Projection
+          default: true
+      type: object
+      required:
+      - event_type
+      title: EventRequest
+
+    ExclusionProposalRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        approved_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Approved By
+        reason_code:
+          type: string
+          title: Reason Code
+          default: DO_NOT_CONTACT
+        reason_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Text
+        scope_type:
+          type: string
+          title: Scope Type
+          default: GLOBAL
+        scope_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scope Id
+      type: object
+      title: ExclusionProposalRequest
+
+    GlobalCcoSetRequest:
+      properties:
+        source_document:
+          type: string
+          minLength: 1
+          title: Source Document
+        source_metadata:
+          additionalProperties: true
+          type: object
+          title: Source Metadata
+      type: object
+      required:
+      - source_document
+      title: GlobalCcoSetRequest
+      description: Set the authoritative global CCO from a manually authored source.
+
+    GlobalCcoSetResponse:
+      properties:
+        activated:
+          type: boolean
+          title: Activated
+        active_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Active Version
+        source_hash:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Hash
+        families:
+          items: {}
+          type: array
+          title: Families
+        validation:
+          additionalProperties: true
+          type: object
+          title: Validation
+        hierarchy_preview:
+          additionalProperties: true
+          type: object
+          title: Hierarchy Preview
+      type: object
+      required:
+      - activated
+      title: GlobalCcoSetResponse
+
+    GlobalVarResponse:
+      properties:
+        kb_id:
+          type: string
+          title: Kb Id
+        var_name:
+          type: string
+          title: Var Name
+        content:
+          type: string
+          title: Content
+        updated_at:
+          type: string
+          title: Updated At
+        updated_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Updated By
+        source:
+          type: string
+          title: Source
+          default: manual
+      type: object
+      required:
+      - kb_id
+      - var_name
+      - content
+      - updated_at
+      title: GlobalVarResponse
+
+    GlobalVarSaveRequest:
+      properties:
+        content:
+          type: string
+          title: Content
+        updated_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Updated By
+      type: object
+      required:
+      - content
+      title: GlobalVarSaveRequest
+
+    GrantRequest:
+      properties:
+        actor_id:
+          type: string
+          title: Actor Id
+        permission:
+          type: string
+          title: Permission
+        granted_by:
+          type: string
+          title: Granted By
+      type: object
+      required:
+      - actor_id
+      - permission
+      - granted_by
+      title: GrantRequest
+
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+
+    ImportHistoryAttachmentRequest:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+        attachment_id:
+          type: string
+          title: Attachment Id
+        source_system:
+          type: string
+          title: Source System
+          default: campaign_history
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        row_limit:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Row Limit
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+      type: object
+      required:
+      - session_id
+      - attachment_id
+      title: ImportHistoryAttachmentRequest
+
+    IntelligenceApprovalRequest:
+      properties:
+        assessment_id:
+          type: string
+          title: Assessment Id
+        approval_decision:
+          type: string
+          title: Approval Decision
+        approval_scope:
+          type: string
+          title: Approval Scope
+          default: QUALIFICATION
+        reviewer_id:
+          type: string
+          title: Reviewer Id
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+        expiration_date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expiration Date
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        commercial_disposition:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Commercial Disposition
+        priority_override:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority Override
+        next_action:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Action
+      type: object
+      required:
+      - assessment_id
+      - approval_decision
+      - reviewer_id
+      title: IntelligenceApprovalRequest
+
+    IntelligenceAssessmentCreateRequest:
+      properties:
+        job_id:
+          type: string
+          title: Job Id
+        candidate_id:
+          type: string
+          title: Candidate Id
+        canonical_legal_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Canonical Legal Name
+        country_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Country Code
+        vat_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vat Id
+        registration_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Registration Number
+        city:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: City
+        postal_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Postal Code
+        registered_address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Registered Address
+      type: object
+      required:
+      - job_id
+      - candidate_id
+      title: IntelligenceAssessmentCreateRequest
+      description: 'Create a DRAFT assessment from ONE completed job result (the
+
+        explicit promotion boundary; approval happens separately).'
+
+    JobStatusResponse:
+      properties:
+        job_id:
+          type: string
+          title: Job Id
+        state:
+          type: string
+          title: State
+        progress:
+          type: number
+          title: Progress
+          default: 0.0
+        stage_detail:
+          type: string
+          title: Stage Detail
+          default: ''
+        candidate_count:
+          type: integer
+          title: Candidate Count
+          default: 0
+        result_count:
+          type: integer
+          title: Result Count
+          default: 0
+        artifact_ids:
+          items:
+            type: string
+          type: array
+          title: Artifact Ids
+        icp_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Icp Id
+        icp_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Icp Version
+        portfolio_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Portfolio Id
+        portfolio_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Portfolio Version
+        analysis_mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Analysis Mode
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        warnings:
+          items:
+            type: string
+          type: array
+          title: Warnings
+        acp_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Acp Id
+        acp_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Acp Version
+        retry_of_job_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Retry Of Job Id
+        archived:
+          type: boolean
+          title: Archived
+          default: false
+        reuse_policy:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reuse Policy
+      type: object
+      required:
+      - job_id
+      - state
+      title: JobStatusResponse
+
+    MarkAddressedRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        addressed_at:
+          type: string
+          title: Addressed At
+        source_system:
+          type: string
+          title: Source System
+        source_record_id:
+          type: string
+          title: Source Record Id
+        confirmation_basis:
+          type: string
+          title: Confirmation Basis
+        reason_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Text
+        correlation_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Correlation Id
+      type: object
+      required:
+      - addressed_at
+      - source_system
+      - source_record_id
+      - confirmation_basis
+      title: MarkAddressedRequest
+
+    OutcomeRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        response_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Response Status
+        outcome:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Outcome
+        reason_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Text
+        source_system:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source System
+        source_record_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Record Id
+        correlation_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Correlation Id
+      type: object
+      title: OutcomeRequest
+
+    QualifyRequest:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+        attachment_id:
+          type: string
+          title: Attachment Id
+        kb_id:
+          type: string
+          title: Kb Id
+          default: default
+        collection_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+        async_job:
+          type: boolean
+          title: Async Job
+          default: true
+        retry_of_job_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Retry Of Job Id
+        reuse_policy:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reuse Policy
+      type: object
+      required:
+      - session_id
+      - attachment_id
+      title: QualifyRequest
+
+    QualifyResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          default: accepted
+        job_id:
+          type: string
+          title: Job Id
+        session_id:
+          type: string
+          title: Session Id
+        kb_id:
+          type: string
+          title: Kb Id
+      type: object
+      required:
+      - job_id
+      - session_id
+      - kb_id
+      title: QualifyResponse
+
+    RejectRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      title: RejectRequest
+
+    RelationshipRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        to_campaign:
+          type: string
+          title: To Campaign
+        relationship_type:
+          type: string
+          title: Relationship Type
+        verification_status:
+          type: string
+          title: Verification Status
+          default: UNVERIFIED
+        source_system:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source System
+        source_record_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Record Id
+      type: object
+      required:
+      - to_campaign
+      - relationship_type
+      title: RelationshipRequest
+
+    ResolveResultRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        organization_id:
+          type: string
+          title: Organization Id
+        decision:
+          type: string
+          title: Decision
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      required:
+      - organization_id
+      - decision
+      title: ResolveResultRequest
+
+    RetryResearchRequest:
+      properties:
+        candidate_ids:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Candidate Ids
+      type: object
+      required:
+      - candidate_ids
+      title: RetryResearchRequest
+      description: Retry research for retry-eligible candidates of a completed job.
+
+    RevokeRequest:
+      properties:
+        actor_id:
+          type: string
+          title: Actor Id
+        permission:
+          type: string
+          title: Permission
+        revoked_by:
+          type: string
+          title: Revoked By
+      type: object
+      required:
+      - actor_id
+      - permission
+      - revoked_by
+      title: RevokeRequest
+
+    SelectMatchRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        organization_id:
+          type: string
+          title: Organization Id
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      required:
+      - organization_id
+      title: SelectMatchRequest
+
+    UpdateCampaignRequest:
+      properties:
+        actor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Actor Id
+        fields:
+          additionalProperties: true
+          type: object
+          title: Fields
+      type: object
+      required:
+      - fields
+      title: UpdateCampaignRequest
+
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
 
 
