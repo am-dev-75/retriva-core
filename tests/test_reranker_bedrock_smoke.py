@@ -132,4 +132,4 @@ def test_bedrock_rerank_smoke():
     assert result[0]["page_title"] == "Qdrant overview" or "Qdrant" in result[0]["text"]
     assert result[0]["_rerank_score"] >= 0.0
     assert result[0]["_score"] == result[0]["_rerank_score"]
-    assert result[0]["_retrieval_score"] == 0.3  # original _score preserved
+    assert result[0]["_retrieval_score"] == pytest.approx(0.3)  # original _score preserved
