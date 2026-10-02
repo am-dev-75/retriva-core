@@ -160,6 +160,54 @@ class Settings(BaseSettings):
     retrieval_rerank_batch_size: int = 100
     retrieval_rerank_max_length: int = 4096
 
+    # --- Intent classification (Spec 001 Phase D; provider-agnostic,
+    # mirroring the reranker configuration pattern).  The classifier is
+    # GLOBAL: process-wide, startup-validated, never varying by
+    # tenant/principal/user/session/KB/message/metadata/message/
+    # classifier-response/model-output/tool-output/workflow state.
+    # Disabled by default (constitution §18); when disabled, none of
+    # these settings is required.  There is NO default model and the
+    # model is never derived from chat/visual/embedding/reranker
+    # settings.  Canonical providers: openrouter | bedrock (aliases
+    # aws_bedrock / aws-bedrock normalize to bedrock; the reranker's
+    # cohere alias is NOT accepted here).  No cross-provider or
+    # cross-model fallback exists. ---
+    intent_classifier_enabled: bool = False
+    intent_classifier_provider: str = ""
+    intent_classifier_model: str = ""
+    intent_classifier_timeout_seconds: float = 10.0
+    intent_classifier_max_retries: int = 1
+    intent_classifier_max_concurrent_requests: int = 8
+    intent_classifier_max_input_chars: int = 2000
+    intent_classifier_max_request_bytes: int = 32768
+    intent_classifier_prompt_version: str = "1"
+    intent_classifier_require_eu_residency: bool = True
+    intent_classifier_require_zdr: bool = True
+    # Dedicated internal service credential (never reused from another
+    # service; secret reference only — never logged).
+    intent_classifier_service_auth_token: str = ""
+    # OpenRouter-specific (required only when provider=openrouter).
+    # The ONLY accepted base URL under required EU residency is the EU
+    # regional endpoint; global/US endpoints, HTTP, URL-embedded
+    # credentials, and arbitrary proxies are rejected.  The API key is
+    # never implicitly taken from any unrelated key setting.
+    intent_classifier_openrouter_base_url: str = \
+        "https://eu.openrouter.ai/api/v1"
+    intent_classifier_openrouter_api_key: Optional[str] = None
+    intent_classifier_openrouter_require_parameters: bool = True
+    intent_classifier_openrouter_allow_fallbacks: bool = True
+    intent_classifier_openrouter_data_collection: str = "deny"
+    intent_classifier_openrouter_zdr: bool = True
+    # Bedrock-specific (required only when provider=bedrock).  Region
+    # resolves setting > AWS_REGION > AWS_DEFAULT_REGION (reranker
+    # precedence); credentials come ONLY from the standard AWS chain —
+    # no static key settings exist.  EU geographic inference profiles
+    # must use the eu. prefix.
+    intent_classifier_aws_region: str = "eu-central-1"
+    intent_classifier_bedrock_inference_geography: str = "eu"
+    # Rate limit (per-caller token bucket, deployment-global).
+    intent_classifier_rate_limit_per_minute: int = 120
+
     # Hybrid retrieval selection
     enable_hybrid_retrieval_selection: bool = True
     hybrid_rerank_keep_top_m: int = 4
@@ -297,6 +345,21 @@ class Settings(BaseSettings):
 
     def model_post_init(self, __context):
         """Handle API key fallback to OPENROUTER_OPENAI_API_KEY."""
+        # --- Intent classifier (Spec 001 Phase D): selected-provider-
+        # only startup validation.  When the classifier is ENABLED,
+        # invalid configuration (unknown provider/alias, missing model,
+        # non-EU endpoint/region/profile under required residency,
+        # disabled ZDR controls, out-of-bounds runtime values) fails
+        # startup; when DISABLED nothing is required (constitution
+        # §18) and the classifier code never runs.  The classifier is
+        # deliberately NOT part of any key fallback above: its API key
+        # comes only from INTENT_CLASSIFIER_OPENROUTER_API_KEY and its
+        # model only from INTENT_CLASSIFIER_MODEL.
+        if self.intent_classifier_enabled:
+            from retriva.intent_classification.base import (
+                validate_classifier_settings,
+            )
+            validate_classifier_settings(self)
         if self.openrouter_openai_api_key:
             if not self.embedding_openai_api_key:
                 self.embedding_openai_api_key = self.openrouter_openai_api_key

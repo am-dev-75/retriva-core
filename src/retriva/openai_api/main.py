@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from retriva.openai_api.routers import chat_completions, models, internal
+from retriva.openai_api.routers import intent_classification
 from retriva.ingestion_api.routers import v2_sessions
 # Register parser capabilities (parser:default / parser:docling) needed by
 # the session attachment upload/parse endpoints.
@@ -134,4 +135,9 @@ app.include_router(chat_completions.router)
 app.include_router(models.router)
 app.include_router(internal.router)
 app.include_router(internal.reranker_router)
+# Spec 001 Phase D: internal service-to-service intent classification
+# (C6 trust boundary — service credential + purpose marker + limits;
+# intentionally NOT part of the public OpenAPI contract; the Gateway
+# does not proxy it; obscurity is not the control).
+app.include_router(intent_classification.router)
 app.include_router(v2_sessions.router)
