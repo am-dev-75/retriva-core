@@ -36,7 +36,13 @@ from __future__ import annotations
 import threading
 from typing import Dict
 
-from retriva.config import settings
+# NOTE: `retriva.config` is intentionally NOT imported at module level
+# here.  When the classifier is enabled at startup, settings construction
+# (config.model_post_init) imports `intent_classification.base`, whose
+# package __init__ imports this module; a module-level settings import
+# would then re-enter the still-initializing config module and crash the
+# app at startup (G-FIX-2).  The lazy import inside
+# get_intent_classifier() runs only after config initialization finished.
 
 from .base import (
     ClassifierErrorCode,
@@ -101,6 +107,10 @@ def get_intent_classifier(force: bool = False):
     exactly like the accepted reranker factory.  ``force=True`` (tests
     only) rebuilds from current settings.
     """
+    # Lazy settings import — see the module docstring note (G-FIX-2):
+    # safe because this runs only after config initialization finished.
+    from retriva.config import settings
+
     if not getattr(settings, "intent_classifier_enabled", False):
         return None
     _ensure_builtin_adapters()
