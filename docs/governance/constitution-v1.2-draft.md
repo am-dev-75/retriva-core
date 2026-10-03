@@ -7,7 +7,7 @@ alwaysApply: true
 
 **Version:** 1.2  
 **Date:** 2026-10-03  
-**Status:** ACTIVE
+**Status:** PROPOSED
 
 **Canonical location:**  
 `retriva-core/.agent/rules/retriva-constitution.md`
@@ -1211,5 +1211,3 @@ traceable to it; and where any artifact disagrees with it, this document
 prevails until it is formally amended through section 47.  A defect between
 governed artifacts and this constitution is recorded and corrected, never
 concealed, never legitimized after the fact.
-Version 1.2 was ratified on 2026-10-03 and is installed byte-for-byte from
-the ratified text recorded in ADR-028.
