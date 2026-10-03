@@ -66,9 +66,9 @@ from typing import Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from loguru import logger
 
 from retriva.config import settings
+from retriva.logger import get_logger
 from retriva.intent_classification.base import (
     ClassifierErrorCode,
     ClassifierRequest,
@@ -335,7 +335,7 @@ async def classify_intent(request: Request):
         except IntentClassifierError as exc:
             return _typed_error(exc.code, exc.message, correlation_id)
 
-        logger.info(
+        get_logger(__name__).info(
             f"[{correlation_id}] intent_classification ok "
             f"latency={time.monotonic() - started:.2f}s "
             f"prompt={PROMPT_ID}/v{PROMPT_VERSION}")
