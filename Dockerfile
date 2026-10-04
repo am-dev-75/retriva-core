@@ -1,5 +1,13 @@
 # Use Python 3.12 slim as base image
-FROM python:3.12-slim
+#
+# Stage names follow the Retriva convention (see the gateway
+# Dockerfile): `base` is the Core-only image (no Pro extension
+# package installed); `pro` adds the Retriva Pro extensions.  Compose
+# targets: core services default to `base` (RETRIVA_CORE_BUILD_TARGET
+# overrides to `pro` for the Pro development workflow); the
+# PostgreSQL platform one-shots always default to `base` (they must
+# never require a proprietary package).
+FROM python:3.12-slim AS base
 
 # Prevent Python from writing pyc files and keep stdout/stderr unbuffered
 ENV PYTHONDONTWRITEBYTECODE=1

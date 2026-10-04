@@ -25,3 +25,9 @@ redis>=5.0.0
 # Rerank operation (service 'bedrock-agent-runtime') — enforced by
 # tests/test_reranker_bedrock_api_model.py.
 boto3>=1.35.72
+# Shared PostgreSQL platform (retriva.infrastructure.postgres):
+# generic connection/role/migration infrastructure for Core and
+# registered extension provider streams (Spec 024; ADR-029).  The
+# same client library the Pro extensions already use; imported
+# lazily so non-database code paths never pay for it.
+psycopg2-binary>=2.9.9

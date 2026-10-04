@@ -1,0 +1,495 @@
+# Retriva project-wide specification and ADR registry.
+#
+# Canonical location (Constitution v1.2 §43):
+#   retriva-core/docs/governance/spec-adr-registry.yaml
+#
+# One project-wide sequence for specifications and one for ADRs,
+# effective prospectively from Constitution v1.2 ratification
+# (2026-10-03, ADR-028).  Historical artifacts keep their original
+# numbers and paths (no renumbering); this registry records them so
+# future allocations can detect collisions.
+#
+# Statuses: allocated | proposed | accepted | superseded | rejected |
+# withdrawn.
+#
+# Backfill note (2026-10-04): entries 001–023 (specifications) and
+# 001–028 (ADRs), plus the grandfathered gateway-local series, were
+# recorded in this registry on 2026-10-04 as the disposition of
+# governance records F-2/F-3
+# (retriva-core/docs/governance/spec-numbering-followup-2026-10-03.md).
+# Their allocation dates are unknown retroactively; the backfill date
+# is recorded instead.  Number 017 (core specifications) was never used
+# by any artifact and predates the registry; it is NOT recorded as an
+# allocation and remains allocatable by a future governed change that
+# records it here BEFORE the artifact is presented as PROPOSED.
+#
+# The number 014 specification collision (F-3) is recorded explicitly:
+# the accepted directory pack 014-user-metadata-ingestion-v1 is the
+# canonical owner of the number (cited by retriva-core/AGENTS.md);
+# 014-structured-citations-v2 is recorded as the historical colliding
+# entry with the standing owner decision documented in F-3.
+
+specifications:
+  - number: "001"
+    title: QA-only proof of concept
+    repository: retriva-core
+    path: specs/001-qa-only-poc
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "002"
+    title: Image injection
+    repository: retriva-core
+    path: specs/002-image-injection
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "003"
+    title: Modular ingestion API
+    repository: retriva-core
+    path: specs/003-modular-injection-api
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "004"
+    title: Open WebUI integration
+    repository: retriva-core
+    path: specs/004-open-webui-integration
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "005"
+    title: Chat streaming
+    repository: retriva-core
+    path: specs/005-chat-streaming
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "006"
+    title: Job cancellation
+    repository: retriva-core
+    path: specs/006-job-cancellation
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "007"
+    title: True cross-language retrieval
+    repository: retriva-core
+    path: specs/007-true-cross-language-retrieval
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "008"
+    title: Bilingual regression validation
+    repository: retriva-core
+    path: specs/008-bilingual-regression-validation
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "009"
+    title: Core plus extensions
+    repository: retriva-core
+    path: specs/009-core-plus-extensions
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "010"
+    title: MediaWiki export injector
+    repository: retriva-core
+    path: specs/010-mediawiki-export-injector
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "011"
+    title: PDF injector
+    repository: retriva-core
+    path: specs/011-pdf-injector
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "013"
+    title: Markdown injector
+    repository: retriva-core
+    path: specs/013-markdown-injector
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "014"
+    title: User-provided metadata ingestion v1 (canonical owner of the number)
+    repository: retriva-core
+    path: specs/014-user-metadata-ingestion-v1
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      historical backfill; canonical owner of 014 per the F-3 standing
+      decision (cited by retriva-core/AGENTS.md)
+
+  - number: "014"
+    title: Structured citations v2 (historical 014 collision, non-canonical)
+    repository: retriva-core
+    path: specs/014-structured-citations-v2.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      historical backfill; records the pre-registry number collision
+      documented in F-3 (spec-numbering-followup-2026-10-03.md);
+      future governed changes that touch this artifact must allocate a
+      fresh registry number and cross-reference
+
+  - number: "015"
+    title: Dedup collection awareness
+    repository: retriva-core
+    path: specs/015-dedup-collection-awareness
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "016"
+    title: GraphRAG
+    repository: retriva-core
+    path: specs/016-graphrag
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "018"
+    title: Durable job store (core)
+    repository: retriva-core
+    path: specs/018-durable-job-store
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill; implementation deferred to its own phase
+
+  - number: "001"
+    title: Hybrid intent routing (historical gateway-local numbering)
+    repository: retriva-gateway
+    path: specs/001-hybrid-intent-routing
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      historical backfill; grandfathered gateway-local series recorded
+      per the F-2 disposition — the project-wide sequence and this
+      local sequence are distinct; the project-wide number 001 remains
+      owned by the core QA-only PoC entry above
+
+  - number: "019"
+    title: PostgreSQL ACP reference cohorts
+    repository: retriva-crm-assistant
+    path: specs/019-postgresql-acp-reference-cohorts
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill; continues the project-wide sequence
+
+  - number: "020"
+    title: ACP chat tools
+    repository: retriva-crm-assistant
+    path: specs/020-acp-chat-tools
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "021"
+    title: ACP evidence enrichment
+    repository: retriva-crm-assistant
+    path: specs/021-acp-evidence-enrichment
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "022"
+    title: ACP narrative enrichment
+    repository: retriva-crm-assistant
+    path: specs/022-acp-narrative-enrichment
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "023"
+    title: User-authored ICP and explicit four-score qualification
+    repository: retriva-crm-assistant
+    path: specs/023-user-authored-icp-and-explicit-scores
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "024"
+    title: Centralized relational database — shared PostgreSQL platform for Core and Pro
+    repository: retriva-core
+    path: specs/024-centralized-relational-db
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      accepted by explicit owner instruction recorded in the pack
+      (2026-10-04); see specs/024-centralized-relational-db/spec.md §1
+
+adrs:
+  - number: "001"
+    title: Generic session attachment processing
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-001-session-attachments.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "002"
+    title: Parser reuse without ingestion
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-002-parser-reuse.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "003"
+    title: Retriva Web Research module boundary
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-003-web-research-boundary.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "004"
+    title: MCP adapter boundary
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-004-mcp-adapter.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "005"
+    title: Persistent vs session research
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-005-persistent-vs-session.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "006"
+    title: Offering portfolio ownership
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-006-offering-portfolio.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "007"
+    title: Offering-aware ICP structure
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-007-offering-aware-icp.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "008"
+    title: ICP and portfolio versioning
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-008-versioning.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "009"
+    title: CRM GraphRAG overlay
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-009-crm-graph-overlay.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "010"
+    title: Ephemeral candidate graph strategy
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-010-ephemeral-candidate-graph.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "011"
+    title: GraphRAG validation and fallback
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-011-graphrag-fallback.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "012"
+    title: Candidate identity resolution
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-012-identity-resolution.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "013"
+    title: Temporary retention and cleanup
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-013-retention-cleanup.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "014"
+    title: SearXNG as the production web-search provider
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-014-searxng-search-provider.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "015"
+    title: Web Research deployment boundary — service-ready library, extraction deferred
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-015-web-research-deployment-boundary.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "016"
+    title: Capability-loss handling and recovery-probe policy
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-016-capability-loss-recovery-policy.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "017"
+    title: Semantic migration from ICP to ACP
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-017-icp-to-acp-migration.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "018"
+    title: PostgreSQL as the business and company intelligence database
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-018-postgres-business-intelligence-database.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      historical backfill; partially superseded by ADR-029 for the
+      platform/promotion aspects (this ADR remains authoritative for
+      the CRM business-domain model)
+
+  - number: "019"
+    title: ERP workbook import workflow through Retriva chat
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-019-erp-import-workflow.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "020"
+    title: Company-level campaign tracking and campaign-audience planning
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-020-campaign-tracking.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "021"
+    title: ERP customer identity and organization addresses
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-021-erp-customer-identity.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "022"
+    title: PostgreSQL-backed ACP reference cohorts, generation runs, and activation
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-022-postgresql-acp-reference-cohorts.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "023"
+    title: Chat-tool integration for the PostgreSQL ACP workflow
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-023-acp-chat-tools.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "024"
+    title: Chat-driven ACP cohort evidence enrichment via the qualification research machinery
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-024-acp-evidence-enrichment.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "025"
+    title: LLM narrative enrichment of ACP summaries
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-025-acp-narrative-enrichment.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "026"
+    title: Confirmation-ready outcome contract for ACP approval-to-activation
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-026-confirmation-ready-outcome-contract.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "027"
+    title: True user-authored Ideal Customer Profile and explicit four-score qualification
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-027-user-authored-icp-and-explicit-scores.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "028"
+    title: Constitution v1.2 recovery and re-ratification
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-028-constitution-v1-2-recovery.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: historical backfill
+
+  - number: "0001"
+    title: Extension tools for the chat agent loop (historical gateway-local numbering)
+    repository: retriva-gateway
+    path: docs/adr/0001-extension-tools-for-chat-agent-loop.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      historical backfill; grandfathered gateway-local ADR series
+      recorded per the F-2 disposition (distinct from the project-wide
+      ADR sequence)
+
+  - number: "0002"
+    title: Hybrid intent routing (historical gateway-local numbering)
+    repository: retriva-gateway
+    path: docs/adr/0002-hybrid-intent-routing.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      historical backfill; grandfathered gateway-local ADR series
+      recorded per the F-2 disposition (distinct from the project-wide
+      ADR sequence)
+
+  - number: "029"
+    title: Centralized relational database — Core-owned shared PostgreSQL platform with provider-based migration streams
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-029-centralized-relational-db.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      accepted by explicit owner instruction recorded in the ADR
+      (2026-10-04); implements Spec 024
