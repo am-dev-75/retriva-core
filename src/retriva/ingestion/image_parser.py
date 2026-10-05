@@ -101,7 +101,7 @@ def enrich_images_with_vlm(
 
     for img in images:
         if cancel_check and cancel_check():
-            from retriva.ingestion_api.job_manager import CancellationError
+            from retriva.ingestion_api.execution import CancellationError
             raise CancellationError("Job cancelled during VLM enrichment")
 
         resolved = resolve_image_path(img.src, html_file_path)

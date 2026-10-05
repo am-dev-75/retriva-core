@@ -53,245 +53,18 @@ tags:
   - name: v2-sessions
   - name: internal
 paths:
-  # --- Ingestion v1 (legacy) API ---
-  /api/v1/ingest/text:
-    post:
-      tags: [Ingestion v1 (legacy)]
-      summary: Ingest plain text
-      operationId: ingestText
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TextIngestRequest"
-      responses:
-        "202":
-          description: Accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/ingest/html:
-    post:
-      tags: [Ingestion v1 (legacy)]
-      summary: Ingest HTML content
-      operationId: ingestHtml
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/HtmlIngestRequest"
-      responses:
-        "202":
-          description: Accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/ingest/pdf:
-    post:
-      tags: [Ingestion v1 (legacy)]
-      summary: Ingest PDF page
-      operationId: ingestPdf
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PdfIngestRequest"
-      responses:
-        "202":
-          description: Accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/ingest/markdown:
-    post:
-      tags: [Ingestion v1 (legacy)]
-      summary: Ingest Markdown sections
-      operationId: ingestMarkdown
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MarkdownIngestRequest"
-      responses:
-        "202":
-          description: Accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/ingest/image:
-    post:
-      tags: [Ingestion v1 (legacy)]
-      summary: Ingest local image file
-      operationId: ingestImage
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ImageIngestRequest"
-      responses:
-        "202":
-          description: Accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/ingest/mediawiki:
-    post:
-      tags: [Ingestion v1 (legacy)]
-      summary: Ingest MediaWiki export page
-      operationId: ingestMediaWiki
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MediaWikiIngestRequest"
-      responses:
-        "202":
-          description: Accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/ingest/chunks:
-    post:
-      tags: [Ingestion v1 (legacy)]
-      summary: Ingest raw chunks
-      operationId: ingestChunks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ChunkIngestRequest"
-      responses:
-        "202":
-          description: Accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/ingest/collection:
-    delete:
-      tags: [Ingestion v1 (legacy)]
-      summary: Clear entire vector collection
-      operationId: clearCollection
-      responses:
-        "200":
-          description: Collection cleared
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
-  /api/v1/documents/{doc_id}:
-    delete:
-      tags: [Ingestion v1 (legacy)]
-      summary: Delete a document and its chunks
-      operationId: deleteDocument
-      parameters:
-        - name: doc_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "204":
-          description: Document deleted or not found (idempotent)
 
   # --- Jobs API ---
-  /api/v1/jobs:
-    get:
-      tags: [Jobs v1]
-      summary: List recent ingestion jobs
-      operationId: listJobs
-      responses:
-        "200":
-          description: List of jobs
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/JobResponse"
 
-  /api/v1/jobs/{job_id}:
-    get:
-      tags: [Jobs v1]
-      summary: Get job status
-      operationId: getJob
-      parameters:
-        - name: job_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Job details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/JobResponse"
 
-  /api/v1/jobs/{job_id}/cancel:
-    post:
-      tags: [Jobs v1]
-      summary: Request job cancellation
-      description: |
-        Requests cooperative cancellation of an ingestion job.
-
-        This endpoint works for **both v1 and v2 jobs** — the underlying
-        ``JobManager`` is shared.  When Celery is enabled, the Celery task
-        is revoked and a Redis cancel flag is set so the worker can check
-        it at cooperative checkpoints.
-
-        State transitions:
-        * Running/pending → 202 Accepted (status becomes `cancelling`)
-        * Already cancelling/cancelled → 200 OK (idempotent)
-        * Completed/failed → 409 Conflict
-        * Unknown → 404 (unless Celery is enabled, in which case the Redis
-          cancel flag is set and 202 is returned)
-      operationId: cancelJob
-      parameters:
-        - name: job_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Already cancelling or cancelled (idempotent)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/JobResponse"
-        "202":
-          description: Cancellation requested
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/JobResponse"
-        "404":
-          description: Job not found
-        "409":
-          description: Cannot cancel a job in a terminal state
 
   # --- v2 Ingestion API ---
   /api/v2:
@@ -892,51 +665,8 @@ paths:
                     format: binary
                     description: Server-Sent Events stream
 
-  # --- v1 PDF file upload ---
-  /api/v1/ingest/upload/pdf:
-    post:
-      tags: [Ingestion v1 (legacy)]
-      summary: Ingest raw PDF file upload
-      operationId: ingestPdfUpload
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file, source_path]
-              properties:
-                file:
-                  type: string
-                  format: binary
-                source_path: { type: string }
-                page_title: { type: string }
-                user_metadata:
-                  type: string
-                  description: JSON-encoded user metadata
-      responses:
-        "202":
-          description: Accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestResponse"
 
   # --- v1 Delete by metadata ---
-  /api/v1/documents/metadata/filter:
-    delete:
-      tags: [Ingestion v1 (legacy)]
-      summary: Delete documents by metadata filter
-      operationId: deleteDocumentsByMetadata
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DeleteMetadataRequest"
-      responses:
-        "204":
-          description: Chunks deleted successfully
 
   # --- Internal / Debug API ---
   /internal/profiler/log:
@@ -5425,93 +5155,12 @@ paths:
 components:
   schemas:
     # --- Ingestion Schemas ---
-    TextIngestRequest:
-      type: object
-      required: [source_path, content_text]
-      properties:
-        source_path: { type: string }
-        page_title: { type: string }
-        content_text: { type: string }
-        user_metadata: { type: object, additionalProperties: { type: string } }
-
-    HtmlIngestRequest:
-      type: object
-      required: [source_path, html_content]
-      properties:
-        source_path: { type: string }
-        page_title: { type: string }
-        html_content: { type: string }
-        origin_file_path: { type: string }
-        user_metadata: { type: object, additionalProperties: { type: string } }
-
-    PdfIngestRequest:
-      type: object
-      required: [source_path, content_text, page_number]
-      properties:
-        source_path: { type: string }
-        page_title: { type: string }
-        content_text: { type: string }
-        page_number: { type: integer }
-        total_pages: { type: integer }
-        user_metadata: { type: object, additionalProperties: { type: string } }
-
     MarkdownSection:
       type: object
       required: [content]
       properties:
         heading: { type: string }
         content: { type: string }
-
-    MarkdownIngestRequest:
-      type: object
-      required: [source_path, page_title, sections]
-      properties:
-        source_path: { type: string }
-        page_title: { type: string }
-        sections:
-          type: array
-          items:
-            $ref: "#/components/schemas/MarkdownSection"
-        user_metadata: { type: object, additionalProperties: { type: string } }
-
-    ImageIngestRequest:
-      type: object
-      required: [source_path, file_path]
-      properties:
-        source_path: { type: string }
-        page_title: { type: string }
-        file_path: { type: string }
-        user_metadata: { type: object, additionalProperties: { type: string } }
-
-    MediaWikiIngestRequest:
-      type: object
-      required: [source_path, page_title, content_text]
-      properties:
-        source_path: { type: string }
-        page_title: { type: string }
-        content_text: { type: string }
-        page_id: { type: integer }
-        namespace: { type: integer }
-        linked_assets:
-          type: array
-          items: { type: string }
-        user_metadata: { type: object, additionalProperties: { type: string } }
-
-    ChunkIngestRequest:
-      type: object
-      required: [chunks]
-      properties:
-        chunks:
-          type: array
-          items: { type: object } # Simplification for Chunk
-
-    IngestResponse:
-      type: object
-      required: [status, message]
-      properties:
-        status: { type: string }
-        message: { type: string }
-        job_id: { type: string }
 
     IngestResponseV2:
       type: object
@@ -5615,14 +5264,6 @@ components:
           items:
             $ref: "#/components/schemas/KBResponse"
 
-    JobStage:
-      type: string
-      enum:
-        [DETECTING, PREPROCESSING, PARSING, NORMALIZATION, CHUNKING, INDEXING, GRAPH_INDEXING]
-      description: |
-        Ordered stages of the v2 ingestion pipeline.
-        GRAPH_INDEXING is optional and only runs when GRAPH_ENABLED=true.
-
     JobResponseV2:
       type: object
       properties:
@@ -5661,18 +5302,6 @@ components:
         supported_formats: { type: array, items: { type: string } }
         supported_types: { type: array, items: { type: string } }
         templates: { type: array, items: { type: string } }
-        error: { type: string }
-
-    JobResponse:
-      type: object
-      required: [job_id, status, source, job_type, created_at, updated_at]
-      properties:
-        job_id: { type: string }
-        status: { type: string }
-        source: { type: string }
-        job_type: { type: string }
-        created_at: { type: string }
-        updated_at: { type: string }
         error: { type: string }
 
     DocumentResponse:

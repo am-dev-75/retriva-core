@@ -14,7 +14,9 @@
 
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from retriva.ingestion_api.routers import ingest, ingest_HTML, ingest_image, ingest_text, ingest_mediawiki, ingest_pdf, ingest_markdown, jobs, documents
+# Retriva API v1 was removed by Spec 027 / ADR-032; only the
+# supported v2 surface (and extension-provided routers) is
+# registered.
 from retriva.ingestion_api.routers import v2_documents, v2_jobs, v2_artifacts, v2_discovery, v2_metadata, v2_retrieval, v2_kbs, v2_sessions
 from retriva.indexing.qdrant_store import init_collection, get_client
 from retriva.domain.kb import seed_default_kb
@@ -125,7 +127,6 @@ async def root():
     return {
         "app": "Retriva Modular Injection API",
         "version": VERSION,
-        "api_v1": "/api/v1",
         "api_v2": "/api/v2"
     }
 
@@ -134,15 +135,6 @@ async def health():
     """Health check endpoint."""
     return {"status": "ok"}
 
-app.include_router(ingest.router)
-app.include_router(ingest_HTML.router)
-app.include_router(ingest_image.router)
-app.include_router(ingest_text.router)
-app.include_router(ingest_mediawiki.router)
-app.include_router(ingest_pdf.router)
-app.include_router(ingest_markdown.router)
-app.include_router(jobs.router)
-app.include_router(documents.router)
 app.include_router(v2_discovery.router)
 app.include_router(v2_documents.router)
 app.include_router(v2_jobs.router)

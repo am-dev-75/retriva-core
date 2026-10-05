@@ -44,7 +44,6 @@ from retriva.ingestion_api.artifact_store import (
     write_provenance,
 )
 from retriva.ingestion_api.durable_jobs import submit_artifact_job
-from retriva.ingestion_api.job_manager import JobManager
 from retriva.jobs.dispatch import (
     PublicationOutcome,
     PublishResult,
@@ -110,7 +109,7 @@ def service(repo, monkeypatch, tmp_path):
     from retriva.jobs.config import JobsSettings
     from retriva.jobs.execution import RetryRescheduler
     from retriva.jobs.local import LocalExecutor
-    from retriva.ingestion_api.job_manager import CancellationError
+    from retriva.ingestion_api.execution import CancellationError
 
     svc = JobsService(repo=repo, settings=JobsSettings(),
                       registry=job_type_registry(), publisher=None)
@@ -356,8 +355,10 @@ def test_each_submission_creates_new_artifact_and_job(service):
     assert job1.input_metadata["collection_context"] == \
         DEFAULT_COLLECTION_NAME
     assert job1.payload_version == PAYLOAD_VERSION_V2
-    # No legacy JobManager write for the integrated workflow.
-    assert JobManager().list_jobs() == []
+    # No legacy JobManager write for the integrated workflow; the
+    # module itself is retired (importing it anywhere would fail).
+    import sys
+    assert "retriva.ingestion_api.job_manager" not in sys.modules
 
 
 def test_untrusted_tenant_context_cannot_override(monkeypatch):

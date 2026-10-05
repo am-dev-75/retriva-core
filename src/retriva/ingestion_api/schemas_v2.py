@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from retriva.ingestion_api.schemas import validate_user_metadata
+from retriva.ingestion_api.metadata_validation import validate_user_metadata
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +67,13 @@ class MetadataFilterMode(str, Enum):
     """Filtering mode for metadata constraints."""
     SOFT = "soft"
     HARD = "hard"
+
+
+class DeleteMetadataRequest(BaseModel):
+    """Request body for metadata-filtered document deletion (the
+    v2 metadata-filter delete surface; relocated from the retired
+    API v1 ``schemas`` module by Spec 027)."""
+    user_metadata_filter: Dict[str, str] = Field(..., description="Filter chunks by metadata for deletion")
 
 
 # ---------------------------------------------------------------------------

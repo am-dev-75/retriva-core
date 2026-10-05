@@ -193,7 +193,7 @@ class DoclingParser:
         try:
             for entry in doc.iterate_items():
                 if cancel_check and cancel_check():
-                    from retriva.ingestion_api.job_manager import CancellationError
+                    from retriva.ingestion_api.execution import CancellationError
                     raise CancellationError("Cancelled during Docling parsing")
 
                 # Docling 2.x yields (item, level) tuples; older versions yield

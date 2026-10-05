@@ -52,8 +52,9 @@ from retriva.ingestion.dedup import (
 )
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from retriva.ingestion.normalize import normalize_text
-from retriva.ingestion_api.job_manager import CancellationError, JobManager, JobStatus
-from retriva.ingestion_api.schemas import UserMetadataValidationError, validate_user_metadata, DeleteMetadataRequest
+from retriva.ingestion_api.execution import CancellationError, JobStatus
+from retriva.ingestion_api.schemas_v2 import DeleteMetadataRequest
+from retriva.ingestion_api.metadata_validation import UserMetadataValidationError, validate_user_metadata
 from retriva.ingestion_api.deps import require_kb_exists, require_kbs_exist
 from retriva.ingestion_api.schemas_v2 import (
     DocumentIngestRequestV2,
@@ -383,37 +384,19 @@ def process_document_v2(
 ):
     """Execute the 6-stage v2 ingestion pipeline in a background thread.
 
-    When ``_cancel_check`` is provided (e.g. by the durable worker
-    protocol), it is used instead of the in-memory JobManager's
-    ``is_cancel_requested``.
-
-    When ``recorder`` is provided (Spec 025 durable integration), it is
-    the ONLY progress sink: PostgreSQL is the sole authoritative job
-    store for the integrated flow and the in-memory JobManager is not
-    touched.  The recorder implements the same surface (start_job /
-    advance_stage / set_stage_detail / complete_job / mark_cancelled /
-    fail_job / get_job / is_cancel_requested).
+    The durable ``recorder`` (Spec 025) is the ONLY progress sink:
+    PostgreSQL is the sole authoritative job store for the integrated
+    flow.  The recorder implements the legacy-compatible surface
+    (start_job / advance_stage / set_stage_detail / complete_job /
+    mark_cancelled / fail_job / get_job / is_cancel_requested).  The
+    legacy in-memory JobManager fallback was removed by Spec 027.
     """
-    if recorder is not None:
-        manager = recorder
-        cancel_check = _cancel_check
-    else:
-        manager = JobManager()
-        # When running in a Celery worker process, the job was created in the
-        # API process and doesn't exist in this process's JobManager singleton.
-        # Register it locally so that start_job / advance_stage / set_stage_detail
-        # work and _sync_state can report progress to Redis.
-        if manager.get_job(job_id) is None:
-            from retriva.ingestion_api.job_manager import Job as _Job, JobStatus as _JS
-            with manager._lock:
-                manager._jobs[job_id] = _Job(
-                    id=job_id,
-                    status=_JS.PENDING,
-                    source=source_uri,
-                    job_type="v2_document",
-                )
-        manager.start_job(job_id)
-        cancel_check = _cancel_check or (lambda: manager.is_cancel_requested(job_id))
+    if recorder is None:
+        raise ValueError(
+            "process_document requires a durable recorder (Spec 025); "
+            "the legacy in-memory JobManager was retired by Spec 027")
+    manager = recorder
+    cancel_check = _cancel_check
     if cancel_check is None:  # defensive: never run without a check
         cancel_check = lambda: False
 

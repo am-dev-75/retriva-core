@@ -103,7 +103,7 @@ def build_service(settings: Optional[JobsSettings] = None,
                 return get_celery_app()
             service.publisher = CeleryPublisher(_app_getter, job_registry)
         else:
-            from retriva.ingestion_api.job_manager import (
+            from retriva.ingestion_api.execution import (
                 CancellationError,
             )
 
@@ -251,7 +251,7 @@ class DurableProgressRecorder:
         stays authoritative; nothing is written here — same semantics
         as the in-memory ``JobManager`` projection it replaces."""
         from types import SimpleNamespace
-        from retriva.ingestion_api.job_manager import JobStatus
+        from retriva.ingestion_api.execution import JobStatus
         if self._terminal == "success":
             status = JobStatus.COMPLETED
         elif self._terminal == "cancelled":
@@ -285,7 +285,7 @@ def document_handler(service: JobsService, tenant_id: str, job_id: str,
                      payload: Dict[str, Any]):
     """Adapter running the v2 document pipeline on the durable
     lifecycle (pipeline untouched; progress projected durably)."""
-    from retriva.ingestion_api.job_manager import CancellationError
+    from retriva.ingestion_api.execution import CancellationError
 
     def _run(job: JobRecord, attempt, cancel_check: Callable[[], bool],
              worker_id: str) -> HandlerOutcome:
@@ -335,7 +335,7 @@ def mediawiki_handler(service: JobsService, tenant_id: str, job_id: str,
                       payload: Dict[str, Any]):
     """Adapter running the MediaWiki export pipeline on the durable
     lifecycle."""
-    from retriva.ingestion_api.job_manager import CancellationError
+    from retriva.ingestion_api.execution import CancellationError
 
     def _run(job: JobRecord, attempt, cancel_check: Callable[[], bool],
              worker_id: str) -> HandlerOutcome:
@@ -382,7 +382,7 @@ def artifact_handler(service: JobsService, tenant_id: str, job_id: str,
     (non-retryable).  Handler/render failures are non-retryable:
     the input is deterministic, so a new attempt would fail again or
     repeat provider cost (basic_report LLM call)."""
-    from retriva.ingestion_api.job_manager import CancellationError
+    from retriva.ingestion_api.execution import CancellationError
 
     # Renderer registration is an import side effect; the WORKER
     # process never imports the artifact router, so the execution
@@ -570,7 +570,7 @@ def _execute_via_protocol(task, service: JobsService, job_type: str,
                           attempt_id: str, tenant_id: str,
                           dispatch_token: str,
                           celery_task_id: str) -> str:
-    from retriva.ingestion_api.job_manager import CancellationError
+    from retriva.ingestion_api.execution import CancellationError
     from retriva.jobs.celery_integration import run_celery_durable_task
 
     payload = dict(payload)
@@ -757,7 +757,7 @@ def run_artifact_generation(*, recorder, cancel_check, tenant_id: str,
     wins; every failure raises (the handler classifies).  Never
     overwrites an existing artifact unless its provenance proves it
     belongs to the same tenant, artifact, and durable job."""
-    from retriva.ingestion_api.job_manager import CancellationError
+    from retriva.ingestion_api.execution import CancellationError
     from retriva.indexing.qdrant_store import get_collection_name
     from retriva.infrastructure.storage import LocalStorageProvider
 

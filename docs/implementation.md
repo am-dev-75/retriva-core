@@ -63,11 +63,9 @@ Retriva exposes two APIs: an ingestion API and an OpenAI-compatible API.
 
 ### Ingestion API
 
-The ingestion API is a proprietary REST API that is used to ingest documents into Retriva. It is located at `/api/v1/ingest` and is mainly used by
+The ingestion API is a proprietary REST API that is used to ingest documents into Retriva. The proprietary Retriva **API v1** (`/api/v1/...`) was **removed by Spec 027 / ADR-032**; the supported ingestion surface is **API v2** at `/api/v2/...` (durable PostgreSQL-backed jobs for asynchronous work), used by the Retriva CLI, the Gateway, and connectors. Requests to removed v1 paths return ordinary 404. By default it runs on port 8000.
 
-* Retriva CLI
-* Open WebUI adapter.
-  By default it runs on port 8000.
+The OpenAI-compatible API (`/v1/chat/completions`, port 8001) is a separate surface and is NOT affected by the API v1 removal.
 
 ### OpenAI API
 
@@ -94,10 +92,8 @@ Key design decisions:
 Key design decisions:
 
 * Cooperative cancellation via `cancel_check` callback injected into `upsert_chunks()` and `get_embeddings()` — checked at batch boundaries
-* Thread-safe singleton `JobManager` with `threading.Lock` — `BackgroundTasks` run in a thread pool
-* Backward-compatible — `IngestResponse.job_id` is optional; existing clients unaffected
-* No rollback — chunks upserted before cancellation stay in Qdrant
-* `CancellationError` propagates from checkpoints → caught by the background worker → sets state to cancelled
+* Cancellation intent is DURABLE in PostgreSQL (`core.jobs`) and honored by the worker's cooperative checkpoints (Spec 025); the legacy in-memory `JobManager` and its Redis shims were retired by Spec 027
+* Cancellation checkpoints raise `CancellationError` (now hosted in `retriva.ingestion_api.execution`) → caught by the durable handler → attempt finishes as cancelled
 
 ### Knowledge Base Management
 

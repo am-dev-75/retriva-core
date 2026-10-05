@@ -34,7 +34,6 @@ tenant-scoped with pagination; the legacy fallback keeps its previous
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from retriva.ingestion_api.durable_jobs import resolve_request_tenant
-from retriva.ingestion_api.job_manager import CancellationError
 from retriva.ingestion_api.schemas_v2 import JobResponseV2
 from retriva.logger import get_logger
 
@@ -98,35 +97,6 @@ def _compat_projection(job) -> JobResponseV2:
     )
 
 
-def _legacy_fallback(job_id: str) -> JobResponseV2 | None:
-    """Legacy projection for ids unknown to the durable store
-    (durable-first precedence; Spec 025 §3.11)."""
-    from retriva.ingestion_api.job_manager import JobManager
-
-    job = JobManager().get_job(job_id)
-    if job is not None:
-        return JobResponseV2(**job.to_dict())
-    from retriva.ingestion_api.celery_app import celery_enabled
-    if celery_enabled():
-        from retriva.ingestion_api.tasks import get_task_status
-        task_state = get_task_status(job_id)
-        if task_state is not None:
-            return JobResponseV2(
-                job_id=job_id,
-                status=task_state.get("status", "pending"),
-                source=task_state.get("source", ""),
-                job_type=task_state.get("job_type", "v2_document"),
-                created_at=task_state.get("created_at", ""),
-                updated_at=task_state.get("updated_at", ""),
-                error=task_state.get("error"),
-                current_stage=task_state.get("current_stage"),
-                stages_completed=task_state.get("stages_completed", []),
-                stage_detail=task_state.get("stage_detail"),
-                progress=task_state.get("progress"),
-            )
-    return None
-
-
 @router.get("", response_model=list[JobResponseV2])
 async def list_jobs_v2(
     request: Request,
@@ -162,10 +132,8 @@ async def list_jobs_v2(
 async def get_job_v2(job_id: str, request: Request):
     """Get the status of a specific job.
 
-    Durable-first: ids known to the durable store resolve there
-    (tenant-scoped); ids unknown to the durable store fall back to the
-    legacy in-memory/Redis projection (deterministic precedence; a v2
-    integrated-flow id can only ever resolve durably)."""
+    Durable-only (Spec 027): ids unknown to the durable store return
+    404. No legacy fallback exists."""
     tenant_id = resolve_request_tenant(request)
     from retriva.ingestion_api.durable_jobs import jobs_service
     from retriva.jobs.errors import JobNotFoundError
@@ -174,19 +142,18 @@ async def get_job_v2(job_id: str, request: Request):
         job = jobs_service().get_job(tenant_id=tenant_id, job_id=job_id)
         return _compat_projection(job)
     except JobNotFoundError:
-        pass
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
     except Exception as exc:  # noqa: BLE001 - degraded read
         logger.warning(
-            "durable job read unavailable (exception=%s); falling "
-            "back to legacy projection", exc.__class__.__name__)
-
-    fallback = _legacy_fallback(job_id)
-    if fallback is not None:
-        return fallback
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Job not found",
-    )
+            "durable job read unavailable (exception=%s)",
+            exc.__class__.__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Durable job store unavailable",
+        )
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponseV2)
@@ -206,9 +173,6 @@ async def cancel_job_v2(job_id: str, request: Request):
         decision = jobs_service().cancel(
             tenant_id=tenant_id, job_id=job_id)
     except JobNotFoundError:
-        fallback = _legacy_fallback(job_id)
-        if fallback is not None:
-            return fallback
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",

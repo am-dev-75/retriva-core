@@ -232,6 +232,27 @@ class SpecAdrRegistryIntegrity(unittest.TestCase):
             (WORKSPACE / adr_031[0]["repository"]
              / adr_031[0]["path"]).exists())
 
+        # Spec 027 / ADR-032 are the API v1 decommissioning
+        # artifacts: allocated before first presentation
+        # (Constitution §43); revisions 1–2 (durable migration) were
+        # superseded by owner direction; revision 3 was explicitly
+        # ACCEPTED by the owner on 2026-10-05.
+        spec_027 = [e for e in self.specs if e["number"] == "027"]
+        self.assertEqual(len(spec_027), 1)
+        self.assertEqual(spec_027[0]["status"], "accepted")
+        self.assertEqual(spec_027[0]["repository"], "retriva-core")
+        self.assertTrue(
+            (WORKSPACE / spec_027[0]["repository"]
+             / spec_027[0]["path"]).exists())
+
+        adr_032 = [e for e in self.adrs if e["number"] == "032"]
+        self.assertEqual(len(adr_032), 1)
+        self.assertEqual(adr_032[0]["status"], "accepted")
+        self.assertEqual(adr_032[0]["repository"], "retriva-core")
+        self.assertTrue(
+            (WORKSPACE / adr_032[0]["repository"]
+             / adr_032[0]["path"]).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

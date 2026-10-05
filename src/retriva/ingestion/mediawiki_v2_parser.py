@@ -61,7 +61,7 @@ from retriva.ingestion.mediawiki_export_parser import (
     parse_export,
     wikitext_to_plaintext,
 )
-from retriva.ingestion_api.job_manager import CancellationError, JobManager
+from retriva.ingestion_api.execution import CancellationError
 from retriva.ingestion_api.schemas_v2 import JobStage
 from retriva.logger import get_logger
 from retriva.registry import CapabilityRegistry
@@ -277,7 +277,7 @@ def process_mediawiki_export(
        c. If new: creates chunks, upserts to Qdrant, finalises catalog.
        d. If duplicate: merges metadata/source_paths.
        e. Resolves ``[[File:…]]`` references for VLM image enrichment.
-    4. Reports progress via :class:`JobManager`.
+    4. Reports progress via the durable recorder (Spec 025).
 
     Pages are dispatched to a thread pool (up to ``_MAX_WORKERS``
     concurrent pages) so that remote VLM calls overlap.
@@ -289,14 +289,16 @@ def process_mediawiki_export(
         cancel_check:   Cancellation callback.
         job_id:         Job identifier for progress tracking.
         namespaces:     MediaWiki namespace IDs to index (default: ``{0, 6}``).
-        recorder:       Optional durable progress recorder (Spec 025):
-                        when provided it is the ONLY progress sink and
-                        the in-memory JobManager is not touched.
+        recorder:       Durable progress recorder (Spec 025); the
+                        in-memory JobManager fallback was removed by
+                        Spec 027.
     """
-    if recorder is not None:
-        manager = recorder
-    else:
-        manager = JobManager()
+    if recorder is None:
+        raise ValueError(
+            "process_mediawiki_export requires a durable recorder "
+            "(Spec 025); the legacy in-memory JobManager was retired "
+            "by Spec 027")
+    manager = recorder
     manager.start_job(job_id)
 
     if namespaces is None:

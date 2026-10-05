@@ -13,138 +13,33 @@
 # limitations under the License.
 
 """
-Celery task wrappers for the v2 ingestion pipeline.
+Celery task wrappers for the durable v2 ingestion pipeline.
 
-These tasks run inside the Celery worker process (not the FastAPI process).
-They call the same ``process_document_v2`` / ``process_mediawiki_export``
-functions used by the BackgroundTasks path, but with Redis-backed job state
-and cancellation signals.
+These tasks run inside the Celery worker process (not the FastAPI
+process).  Each body executes the DURABLE worker protocol: the
+PostgreSQL-backed job lifecycle is authoritative (Spec 025); Redis is
+transport only.  The legacy API v1 Redis job-state helpers, the raw
+``AsyncResult`` status fallback, and the legacy cancellation surface
+were removed by Spec 027 / ADR-032.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
 from retriva.config import settings
 from retriva.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ── Lazy Celery import ────────────────────────────────────────────────────
-# We import celery only when this module is loaded by the worker.  When the
-# API process imports it (to call ``.delay()``), the celery_app module handles
-# the conditional import.
-
-_celery = None
-
-def _get_celery():
-    global _celery
-    if _celery is None:
-        from retriva.ingestion_api.celery_app import get_celery_app
-        _celery = get_celery_app()
-    return _celery
-
-
-# ── Redis-backed helpers (job state + cancellation) ──────────────────────
-
-def _redis_client():
-    """Return a Redis client, or None if Redis is not available."""
-    try:
-        import redis
-        return redis.from_url(settings.celery_broker_url, decode_responses=True)
-    except Exception:
-        return None
-
-
-def _set_job_state(job_id: str, state: dict) -> None:
-    """Store job state in Redis as JSON."""
-    r = _redis_client()
-    if r is None:
-        return
-    r.setex(f"retriva:job:{job_id}", 7 * 24 * 3600, json.dumps(state))
-
-
-def _get_job_state(job_id: str) -> Optional[dict]:
-    """Retrieve job state from Redis, or None if not found."""
-    r = _redis_client()
-    if r is None:
-        return None
-    raw = r.get(f"retriva:job:{job_id}")
-    if raw is None:
-        return None
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-
-def _delete_job_state(job_id: str) -> None:
-    """Remove job state from Redis."""
-    r = _redis_client()
-    if r is None:
-        return
-    r.delete(f"retriva:job:{job_id}")
-
-
-def _increment_retry_count(content_hash: str) -> int:
-    """Increment and return the retry count for a given content hash.
-
-    Used to track OOM-kill re-queues (which bypass Celery's own retry
-    counter) and prevent infinite retry loops.
-    """
-    r = _redis_client()
-    if r is None:
-        return 0
-    key = f"retriva:retry:{content_hash}"
-    count = r.incr(key)
-    r.expire(key, 24 * 3600)  # TTL: 24 hours
-    return count
-
-
-def _clear_retry_count(content_hash: str) -> None:
-    """Clear the retry count after successful completion."""
-    r = _redis_client()
-    if r is None:
-        return
-    r.delete(f"retriva:retry:{content_hash}")
-
-
-def _set_cancel_flag(job_id: str) -> None:
-    """Set the cancellation flag in Redis."""
-    r = _redis_client()
-    if r is None:
-        return
-    r.setex(f"retriva:cancel:{job_id}", 24 * 3600, "1")
-
-
-def _is_cancel_requested(job_id: str) -> bool:
-    """Check the cancellation flag in Redis."""
-    r = _redis_client()
-    if r is None:
-        return False
-    return r.exists(f"retriva:cancel:{job_id}") > 0
-
-
-def _clear_cancel_flag(job_id: str) -> None:
-    """Remove the cancellation flag."""
-    r = _redis_client()
-    if r is None:
-        return
-    r.delete(f"retriva:cancel:{job_id}")
-
-
 # ── Task definitions ─────────────────────────────────────────────────────
 #
 # Spec 025 integration: the task bodies run the DURABLE worker
 # protocol (PostgreSQL-authoritative attempt lifecycle: atomic claim,
 # throttled durable cancellation checks, durable progress, durable
-# retry scheduling).  Celery retry counters are diagnostic only; the
-# Redis job-state/cancel keys and the Redis OOM counter are retired
-# from the integrated flow (diagnostic helpers remain for the legacy
-# status fallback only).  No execution happens outside the durable
+# retry scheduling).  The legacy Redis job-state/cancel keys, the
+# legacy retry counter, and the raw ``AsyncResult`` status fallback
+# are retired (Spec 027).  No execution happens outside the durable
 # attempt model.
 
 def _register_tasks(app):
@@ -297,63 +192,3 @@ def _register_tasks(app):
                 collection_context=collection_context,
             ),
         )
-
-
-# ── Legacy cancellation surface (still used by legacy flows) ─────────────
-
-def request_task_cancellation(job_id: str) -> bool:
-    """Request cancellation of a Celery task.
-
-    Returns True if the cancellation flag was set.
-    """
-    app = _get_celery()
-    if app is None:
-        return False
-
-    # Revoke the Celery task (best-effort transport aid only; NEVER a
-    # guarantee that running work is interrupted — Spec 025 §3.3).
-    app.control.revoke(job_id, terminate=False)
-    # Legacy Redis flag for legacy cooperative cancellation.
-    _set_cancel_flag(job_id)
-    return True
-
-
-def get_task_status(job_id: str) -> Optional[dict]:
-    """Retrieve job status from Redis, falling back to Celery result backend."""
-    # First check our Redis job state
-    state = _get_job_state(job_id)
-    if state is not None:
-        return state
-
-    # Fall back to Celery AsyncResult
-    app = _get_celery()
-    if app is None:
-        return None
-
-    result = app.AsyncResult(job_id)
-    return {
-        "job_id": job_id,
-        "status": _celery_state_to_job_status(result.state),
-        "source": "",
-        "job_type": "v2_document",
-        "current_stage": None,
-        "stages_completed": [],
-        "stage_detail": None,
-        "progress": None,
-        "created_at": "",
-        "updated_at": "",
-        "error": str(result.result) if result.failed() else None,
-    }
-
-
-def _celery_state_to_job_status(state: str) -> str:
-    """Map Celery task states to JobStatus values."""
-    mapping = {
-        "PENDING": "pending",
-        "STARTED": "running",
-        "SUCCESS": "completed",
-        "FAILURE": "failed",
-        "RETRY": "running",
-        "REVOKED": "cancelled",
-    }
-    return mapping.get(state, "pending")

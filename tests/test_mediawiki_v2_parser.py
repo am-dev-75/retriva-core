@@ -21,9 +21,62 @@ import os
 
 from retriva.ingestion.mediawiki_v2_parser import process_mediawiki_export
 from retriva.ingestion.dedup import DeduplicationStore
-from retriva.ingestion_api.job_manager import JobManager
+from retriva.ingestion_api.execution import JobStatus
+
+
+class InMemoryRecorder:
+    """Test double for the durable recorder surface (Spec 025). The
+    legacy in-memory JobManager was retired by Spec 027, so parser
+    tests use this minimal recorder implementing the same
+    start/advance/set/complete/cancel/fail/get/cancel-check surface."""
+
+    def __init__(self):
+        self._jobs = {}
+
+    def start_job(self, job_id):
+        self._jobs.setdefault(job_id, {"status": "running", "current_stage": None,
+                                       "stages_completed": [], "error": None})
+
+    def advance_stage(self, job_id, stage):
+        job = self._jobs.setdefault(job_id, {"status": "running", "current_stage": None,
+                                             "stages_completed": [], "error": None})
+        if job["current_stage"] and job["current_stage"] not in job["stages_completed"]:
+            job["stages_completed"].append(job["current_stage"])
+        job["current_stage"] = stage
+
+    def set_stage_detail(self, job_id, detail, progress=None):
+        pass
+
+    def complete_job(self, job_id):
+        job = self._jobs.setdefault(job_id, {"status": "running", "current_stage": None,
+                                             "stages_completed": [], "error": None})
+        job["status"] = JobStatus.COMPLETED
+        if job["current_stage"] and job["current_stage"] not in job["stages_completed"]:
+            job["stages_completed"].append(job["current_stage"])
+        job["current_stage"] = None
+
+    def mark_cancelled(self, job_id):
+        self._jobs.setdefault(job_id, {"status": "cancelled", "current_stage": None,
+                                       "stages_completed": [], "error": None})
+
+    def fail_job(self, job_id, error):
+        job = self._jobs.setdefault(job_id, {"status": "running", "current_stage": None,
+                                             "stages_completed": [], "error": None})
+        job["status"] = JobStatus.FAILED
+        job["error"] = error
+
+    def get_job(self, job_id):
+        from types import SimpleNamespace
+        job = self._jobs.get(job_id)
+        if job is None:
+            return None
+        return SimpleNamespace(
+            id=job_id, status=job["status"], current_stage=job["current_stage"],
+            stages_completed=list(job["stages_completed"]), error=job["error"])
+
+    def is_cancel_requested(self, job_id):
+        return False
 from retriva.domain.models import DocRecord
-from retriva.indexing.qdrant_store import COLLECTION_NAME
 
 @pytest.fixture
 def temp_dedup_store(tmp_path):
@@ -102,19 +155,20 @@ def test_process_mediawiki_export_basic(sample_export_dir, temp_dedup_store, moc
     monkeypatch.setattr(DeduplicationStore, "__init__", mock_store_init)
     
     # Run processor
-    job_manager = JobManager()
-    job = job_manager.create_job(source=str(sample_export_dir), job_type="v2_mediawiki")
-    
+    job_id = "test-mediawiki-job-1"
+    recorder = InMemoryRecorder()
+
     process_mediawiki_export(
         staged_dir=str(sample_export_dir),
         user_metadata={"project": "test"},
         kb_id="kb_test",
         cancel_check=lambda: False,
-        job_id=job.id,
+        job_id=job_id,
+        recorder=recorder,
     )
-    
-    job_status = job_manager.get_job(job.id)
-    assert job_status.status == "completed"
+
+    job_status = recorder.get_job(job_id)
+    assert job_status.status == JobStatus.COMPLETED
     
     # Check that chunks were created (2 pages in ns=0, Talk page skipped)
     assert len(mock_qdrant["chunks"]) > 0
@@ -140,26 +194,27 @@ def test_process_mediawiki_export_deduplication(sample_export_dir, temp_dedup_st
     
     monkeypatch.setattr(DeduplicationStore, "__init__", mock_store_init)
     
-    job_manager = JobManager()
-    job1 = job_manager.create_job(source=str(sample_export_dir), job_type="v2_mediawiki")
-    
+    job_id1 = "test-mediawiki-job-1"
+    job_id2 = "test-mediawiki-job-2"
+
     # First run
     process_mediawiki_export(
         staged_dir=str(sample_export_dir),
         user_metadata={"run": "1"},
         kb_id="kb_test",
         cancel_check=lambda: False,
-        job_id=job1.id,
+        job_id=job_id1,
+        recorder=InMemoryRecorder(),
     )
-    
+
     # Second run with different metadata
-    job2 = job_manager.create_job(source=str(sample_export_dir), job_type="v2_mediawiki")
     process_mediawiki_export(
         staged_dir=str(sample_export_dir),
         user_metadata={"run": "2", "new_tag": "true"},
         kb_id="kb_test",
         cancel_check=lambda: False,
-        job_id=job2.id,
+        job_id=job_id2,
+        recorder=InMemoryRecorder(),
     )
     
     # Records should still be 2 (deduplicated)

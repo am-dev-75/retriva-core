@@ -54,12 +54,11 @@ def mock_qdrant_startup():
 
 
 from retriva.ingestion_api.main import app
-from retriva.ingestion_api.job_manager import JobManager
 
 
 @pytest.fixture(autouse=True)
-def reset_job_manager():
-    """Ensure clean JobManager state and re-register capabilities for each test.
+def reset_capabilities():
+    """Re-register capabilities for each test.
 
     Other test modules (test_registry, test_extension_loading) may call
     ``CapabilityRegistry._reset()``, clearing all registrations.  We
@@ -79,8 +78,6 @@ def reset_job_manager():
     # MIME detection — no running Tika server required for unit tests
     with patch("retriva.ingestion.tika_client.TikaClient.health_check", return_value=False):
         yield
-
-    JobManager._reset()
 
 
 @pytest.fixture()
@@ -276,7 +273,7 @@ def test_v2_job_not_found_404():
 
 @patch("retriva.ingestion_api.routers.v2_documents.upsert_chunks")
 def test_v2_list_jobs_filters_v2(mock_upsert):
-    """GET /api/v2/jobs only returns v2 jobs (not v1)."""
+    """GET /api/v2/jobs only returns durable v2-typed jobs."""
     import tempfile, os
     fd, path = tempfile.mkstemp(suffix=".txt")
     os.write(fd, b"Content for list jobs test.")
@@ -284,14 +281,8 @@ def test_v2_list_jobs_filters_v2(mock_upsert):
 
     try:
         with TestClient(app) as client:
-            # Create a v1 job
-            client.post("/api/v1/ingest/text", json={
-                "source_path": "test://v1",
-                "page_title": "V1 Doc",
-                "content_text": "V1 content.",
-            })
-
-            # Create a v2 job
+            # Create a v2 job (Retriva API v1 was removed; every job on
+            # this surface is durable and v2-typed by construction).
             client.post("/api/v2/documents", json={
                 "source_uri": path,
                 "content_type": "text/plain",
@@ -335,66 +326,18 @@ def test_mime_explicit_precedence():
 # v1 Coexistence (regression)
 # ---------------------------------------------------------------------------
 
-@patch("retriva.ingestion_api.routers.ingest_text.upsert_chunks")
-def test_v1_unaffected(mock_upsert):
-    """v1 POST /api/v1/ingest/text still returns 202 with v1 response shape."""
+@patch("retriva.ingestion_api.routers.v2_documents.upsert_chunks")
+def test_v1_removed_404(mock_upsert):
+    """Retriva API v1 was removed (Spec 027): /api/v1/ingest/text
+    returns ordinary 404 with no side effect."""
     payload = {
         "source_path": "test://v1-regression",
         "page_title": "V1 Regression Test",
-        "content_text": "Verifying that v1 is completely unaffected by v2 changes.",
+        "content_text": "Verifying that v1 was removed by Spec 027.",
     }
 
     with TestClient(app) as client:
         response = client.post("/api/v1/ingest/text", json=payload)
 
-    assert response.status_code == 202
-    data = response.json()
-    assert data["status"] == "accepted"
-    assert "job_id" in data
-    # v1 response should NOT have v2-specific fields
-    assert "current_stage" not in data
-    assert "stages_completed" not in data
-
-
-# ---------------------------------------------------------------------------
-# Stage-aware job model unit tests
-# ---------------------------------------------------------------------------
-
-def test_job_manager_advance_stage():
-    """advance_stage() tracks stage transitions correctly."""
-    manager = JobManager()
-    job = manager.create_job(source="test", job_type="v2_document")
-    manager.start_job(job.id)
-
-    # Advance through stages
-    manager.advance_stage(job.id, "DETECTING")
-    j = manager.get_job(job.id)
-    assert j.current_stage == "DETECTING"
-    assert j.stages_completed == []
-
-    manager.advance_stage(job.id, "PREPROCESSING")
-    j = manager.get_job(job.id)
-    assert j.current_stage == "PREPROCESSING"
-    assert j.stages_completed == ["DETECTING"]
-
-    manager.advance_stage(job.id, "PARSING")
-    j = manager.get_job(job.id)
-    assert j.current_stage == "PARSING"
-    assert j.stages_completed == ["DETECTING", "PREPROCESSING"]
-
-
-def test_job_manager_v1_jobs_have_no_stages():
-    """v1 jobs should have None/empty stage fields."""
-    manager = JobManager()
-    job = manager.create_job(source="test", job_type="text")
-    manager.start_job(job.id)
-    manager.complete_job(job.id)
-
-    j = manager.get_job(job.id)
-    assert j.current_stage is None
-    assert j.stages_completed == []
-
-    # to_dict should include the fields but with None/empty values
-    d = j.to_dict()
-    assert d["current_stage"] is None
-    assert d["stages_completed"] == []
+    assert response.status_code == 404
+    assert not mock_upsert.called

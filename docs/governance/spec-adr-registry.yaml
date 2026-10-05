@@ -268,6 +268,31 @@ specifications:
       never deleted by job retention; no client idempotency key;
       ADR-031 Core-owned)
 
+  - number: "027"
+    title: API v1 decommissioning and legacy job-state retirement
+    repository: retriva-core
+    path: specs/027-api-v1-decommissioning
+    status: accepted
+    allocated: "2026-10-05"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; revisions 1–2 (2026-10-05) proposed migrating legacy
+      v1 ingestion workflows onto the durable Core jobs subsystem
+      (revision 2 narrowed to one bounded-text route after
+      CHANGES_REQUESTED); the owner then DIRECTED that Retriva API
+      v1 may be dropped, superseding the migration direction;
+      revision 3 (2026-10-05) re-scopes the phase to API v1
+      decommissioning and legacy job-state retirement (hard removal
+      of the nine v1 routers, complete JobManager retirement after
+      shared-symbol relocation, Redis shim cleanup without
+      destruction, durable v2 surfaces preserved); original path
+      specs/027-v1-legacy-ingestion-durable-migration superseded by
+      the rename; explicitly accepted for implementation by the
+      owner on 2026-10-05 (acceptance event recorded in the spec
+      and ADR status sections); implemented and validated the same
+      day — closure audit SUCCESS, commit deferred to a separate
+      owner instruction
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -559,3 +584,27 @@ adrs:
       workflow; explicitly accepted for implementation by the owner
       on 2026-10-05 (acceptance event recorded in the ADR status
       section)
+
+  - number: "032"
+    title: Retire API v1 and legacy in-memory job authority
+    repository: retriva-core
+    path: docs/adr/adr-032-retire-api-v1-and-legacy-job-authority.md
+    status: accepted
+    allocated: "2026-10-05"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; revisions 1–2 (2026-10-05) proposed applying the
+      ADR-031 durable-jobs lifecycle to the legacy v1 ingestion
+      surface (revision 2 after CHANGES_REQUESTED); superseded by
+      the owner direction that API v1 may be dropped; revision 3
+      (2026-10-05) records the decommissioning decision: hard
+      removal of API v1 (option A), shared-symbol relocation
+      (CancellationError/JobStatus, user-metadata validation),
+      complete JobManager retirement, Redis shim cleanup with
+      natural key expiry, durable v2 surfaces preserved; original
+      path docs/adr/adr-032-v1-legacy-ingestion-durable-jobs.md
+      superseded by the rename; explicitly accepted for
+      implementation by the owner on 2026-10-05 (acceptance event
+      recorded in the ADR status section); implemented and validated
+      the same day (Spec 027 acceptance.md §V) — closure audit
+      SUCCESS, commit deferred to a separate owner instruction

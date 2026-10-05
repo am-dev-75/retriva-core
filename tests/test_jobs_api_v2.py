@@ -19,9 +19,10 @@ the durable service bound in-process.
 Covers: no manual-retry route on the public surface, server-side
 tenant trust model (fixed tenant; constrained loopback development
 override), tenant-scoped durable listing/get with pagination bounds,
-durable-first precedence with the legacy fallback boundary, durable
-cancel semantics (idempotent, terminal 409, manual_review 409,
-unknown 404), and the idempotent submit path through the route."""
+durable-only resolution (the legacy fallback was retired by
+Spec 027), durable cancel semantics (idempotent, terminal 409,
+manual_review 409, unknown 404), and the idempotent submit path
+through the route."""
 
 from __future__ import annotations
 
@@ -45,7 +46,6 @@ from retriva.ingestion_api import durable_jobs  # noqa: E402
 from retriva.ingestion_api.durable_jobs import (  # noqa: E402
     reset_jobs_service,
 )
-from retriva.ingestion_api.job_manager import JobManager  # noqa: E402
 from retriva.ingestion_api.main import app  # noqa: E402
 from retriva.jobs.config import (  # noqa: E402
     JobsSettings,
@@ -100,12 +100,10 @@ def clean_jobs(jobs_api_db):
 
 @pytest.fixture(autouse=True)
 def _reset_singletons():
-    JobManager._reset()
     reset_jobs_service()
     reset_tenant_resolver()
     reset_jobs_settings()
     yield
-    JobManager._reset()
     reset_jobs_service()
     reset_tenant_resolver()
     reset_jobs_settings()
@@ -371,20 +369,17 @@ def test_get_unknown_and_other_tenant_404(client, bound_service):
         tenant_id=OTHER_TENANT, job_type="v2_document",
         execution_transport="celery",
         input_metadata={"source_uri": "/doc/other.pdf"})
-    # Tenant-scoped read: another tenant's id resolves 404 here (and
-    # the legacy fallback does not exist for durable ids).
+    # Tenant-scoped read: another tenant's id resolves 404 here
+    # (durable-only resolution; Spec 027 removed the legacy fallback).
     assert client.get(f"/api/v2/jobs/{other.id}").status_code == 404
 
 
-def test_legacy_fallback_boundary(client):
-    """Ids unknown to the durable store fall back to the legacy
-    in-memory projection (durable-first precedence; Spec 025 §3.11)."""
-    mgr = JobManager()
-    job = mgr.create_job(source="/wiki/legacy", job_type="html")
-    response = client.get(f"/api/v2/jobs/{job.id}")
-    assert response.status_code == 200
-    assert response.json()["job_id"] == job.id
-    assert response.json()["source"] == "/wiki/legacy"
+def test_removed_legacy_fallback_404(client, bound_service):
+    """Ids unknown to the durable store return plain 404 — the legacy
+    in-memory/Redis fallback projection was retired by Spec 027."""
+    response = client.get("/api/v2/jobs/legacy-in-memory-id")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Job not found"
 
 
 # ---------------------------------------------------------------------------

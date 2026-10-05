@@ -66,48 +66,32 @@ def ensure_registrations():
     with patch("retriva.ingestion.tika_client.TikaClient.health_check", return_value=False):
         yield
 
-    from retriva.ingestion_api.job_manager import JobManager
-    JobManager._reset()
 
 
 from retriva.ingestion_api.main import app
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# AC-1: Coexistence
-# "Requests to /api/v1/ingest/text still succeed and return identical v1
-#  responses."
+# AC-1 (revised by Spec 027): Retriva API v1 is REMOVED
+# "Requests to /api/v1/ingest/text return ordinary 404 with no side
+#  effect."
 # ═══════════════════════════════════════════════════════════════════════════
 
-@patch("retriva.ingestion_api.routers.ingest_text.upsert_chunks")
-def test_ac1_coexistence_v1_text_endpoint(mock_upsert):
-    """AC-1: POST /api/v1/ingest/text returns 202 with the v1 response shape."""
+@patch("retriva.ingestion_api.routers.v2_documents.upsert_chunks")
+def test_ac1_v1_text_endpoint_removed(mock_upsert):
+    """AC-1 (Spec 027): POST /api/v1/ingest/text is removed and returns
+    ordinary 404 with no side effect."""
     payload = {
         "source_path": "test://coexistence",
         "page_title": "Coexistence Test",
-        "content_text": "This verifies v1 is untouched by v2 changes.",
+        "content_text": "Retriva API v1 was removed.",
     }
 
     with TestClient(app) as client:
         response = client.post("/api/v1/ingest/text", json=payload)
 
-    # ── v1 contract ──
-    assert response.status_code == 202, f"Expected 202, got {response.status_code}"
-
-    data = response.json()
-    assert data["status"] == "accepted"
-    assert "message" in data
-    assert "job_id" in data
-
-    # v1 responses must NOT contain v2-specific fields
-    assert "current_stage" not in data
-    assert "stages_completed" not in data
-
-    # Background task ran and produced chunks
-    assert mock_upsert.called
-    chunks = mock_upsert.call_args[0][1]
-    assert len(chunks) >= 1
-    assert chunks[0].text == "This verifies v1 is untouched by v2 changes."
+    assert response.status_code == 404, f"Expected 404, got {response.status_code}"
+    assert not mock_upsert.called
 
 
 # ═══════════════════════════════════════════════════════════════════════════

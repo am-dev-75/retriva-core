@@ -207,7 +207,7 @@ def get_embeddings(texts: List[str], cancel_check: Optional[Callable[[], bool]] 
     for i in range(0, len(texts), settings.indexing_batch_size):
         # Cancellation checkpoint — check before each batch
         if cancel_check and cancel_check():
-            from retriva.ingestion_api.job_manager import CancellationError
+            from retriva.ingestion_api.execution import CancellationError
             raise CancellationError("Job cancelled during embedding")
 
         batch = texts[i : i + settings.indexing_batch_size]

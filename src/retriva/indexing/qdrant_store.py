@@ -111,7 +111,7 @@ def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optio
     for i in range(0, total, settings.indexing_batch_size):
         # Cancellation checkpoint — check before each batch
         if cancel_check and cancel_check():
-            from retriva.ingestion_api.job_manager import CancellationError
+            from retriva.ingestion_api.execution import CancellationError
             raise CancellationError("Job cancelled during upsert")
 
         batch_chunks = chunks[i : i + settings.indexing_batch_size]

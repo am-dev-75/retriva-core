@@ -25,7 +25,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from retriva.ingestion_api.main import app
-from retriva.ingestion_api.job_manager import JobManager
 
 # Spec 026: the v2 artifact workflow runs the durable job lifecycle
 # (PostgreSQL authoritative); bind the durable service to the scratch
@@ -211,7 +210,8 @@ def test_no_legacy_jobmanager_write(client, isolated_artifact_storage):
     assert response.status_code == 202
     # The integrated v2 artifact workflow NEVER writes the legacy
     # in-memory manager (PostgreSQL is the sole authoritative store).
-    assert JobManager().list_jobs() == []
+    import sys
+    assert "retriva.ingestion_api.job_manager" not in sys.modules
 
 
 def test_unsupported_format_rejected(client):

@@ -67,8 +67,6 @@ def reset_capabilities():
     with patch("retriva.ingestion.tika_client.TikaClient.health_check", return_value=False), \
          patch.object(settings, "v2_primary_parser", "default"):
         yield
-    from retriva.ingestion_api.job_manager import JobManager
-    JobManager._reset()
 
 
 @pytest.fixture(autouse=True)
