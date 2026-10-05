@@ -259,11 +259,12 @@ def _process_page(
 
 def process_mediawiki_export(
     staged_dir: str,
-    user_metadata: Optional[Dict[str, str]],
+    user_metadata: Optional[Dict[str, object]],
     kb_id: str,
     cancel_check: Callable[[], bool],
     job_id: str,
     namespaces: Optional[Set[int]] = None,
+    recorder=None,
 ) -> None:
     """Process a MediaWiki export directory with per-page granularity.
 
@@ -288,8 +289,14 @@ def process_mediawiki_export(
         cancel_check:   Cancellation callback.
         job_id:         Job identifier for progress tracking.
         namespaces:     MediaWiki namespace IDs to index (default: ``{0, 6}``).
+        recorder:       Optional durable progress recorder (Spec 025):
+                        when provided it is the ONLY progress sink and
+                        the in-memory JobManager is not touched.
     """
-    manager = JobManager()
+    if recorder is not None:
+        manager = recorder
+    else:
+        manager = JobManager()
     manager.start_job(job_id)
 
     if namespaces is None:
@@ -397,5 +404,5 @@ def process_mediawiki_export(
         manager.mark_cancelled(job_id)
         logger.info(f"Job {job_id} cancelled during MediaWiki processing")
     except Exception as e:
-        manager.fail_job(job_id, str(e))
-        logger.error(f"Job {job_id} failed: {e}")
+        manager.fail_job(job_id, e.__class__.__name__)
+        logger.error(f"Job {job_id} failed: {e.__class__.__name__}")

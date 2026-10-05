@@ -234,6 +234,21 @@ specifications:
       accepted by explicit owner instruction recorded in the pack
       (2026-10-04); see specs/024-centralized-relational-db/spec.md §1
 
+  - number: "025"
+    title: Durable Core job lifecycle persistence (PostgreSQL system of record)
+    repository: retriva-core
+    path: specs/025-durable-core-jobs
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; implements the durable-jobs follow-up deferred by
+      Spec 024; revision 1 presented 2026-10-04 and returned
+      CHANGES_REQUESTED; revision 2 (2026-10-04) applied the owner
+      decisions and was re-presented; explicitly accepted for
+      implementation by the owner on 2026-10-04 (manual_review
+      approved as bounded, non-terminal only)
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -493,3 +508,19 @@ adrs:
     notes: >-
       accepted by explicit owner instruction recorded in the ADR
       (2026-10-04); implements Spec 024
+
+  - number: "030"
+    title: Durable Core jobs — PostgreSQL as the logical job system of record
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-030-durable-core-jobs.md
+    status: accepted
+    allocated: "2026-10-04"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; records the durable-jobs decision including the jobs
+      schema ownership transition deferred by ADR-029; revision 1
+      presented 2026-10-04 and returned CHANGES_REQUESTED; revision 2
+      (2026-10-04) applied the owner decisions and was re-presented;
+      explicitly accepted for implementation by the owner on
+      2026-10-04 (acceptance event recorded in the ADR status
+      section)

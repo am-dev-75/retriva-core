@@ -31,6 +31,11 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
+# Spec 025: the v2 submission endpoints run the durable job lifecycle
+# (PostgreSQL authoritative); bind the durable service to the scratch
+# jobs database for every test in this module.
+pytestmark = pytest.mark.usefixtures("durable_service")
+
 # Ensure default implementations are registered before app is imported
 import retriva.ingestion.chunker              # noqa: F401
 import retriva.ingestion.html_parser          # noqa: F401
@@ -76,6 +81,20 @@ def reset_job_manager():
         yield
 
     JobManager._reset()
+
+
+@pytest.fixture()
+def isolated_dedup_store(monkeypatch, tmp_path):
+    """Point the pipeline's dedup catalog at a temp path so upload
+    tests stay hermetic across runs (the checkout catalog otherwise
+    accumulates records from previous runs and content dedup turns
+    them into duplicates)."""
+    from retriva.ingestion.dedup import DeduplicationStore
+    from retriva.ingestion_api.routers import v2_documents
+    monkeypatch.setattr(
+        v2_documents, "DeduplicationStore",
+        lambda: DeduplicationStore(
+            catalog_path=str(tmp_path / "dedup_catalog.json")))
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +174,7 @@ def test_v2_metadata_validation_422(mock_upsert):
 # ---------------------------------------------------------------------------
 
 @patch("retriva.ingestion_api.routers.v2_documents.upsert_chunks")
-def test_v2_upload_returns_202(mock_upsert):
+def test_v2_upload_returns_202(mock_upsert, isolated_dedup_store):
     """POST /api/v2/documents/upload returns 202 with a job_id."""
     content = b"Uploaded text file content for v2."
 
@@ -173,7 +192,7 @@ def test_v2_upload_returns_202(mock_upsert):
 
 
 @patch("retriva.ingestion_api.routers.v2_documents.upsert_chunks")
-def test_v2_upload_with_metadata(mock_upsert):
+def test_v2_upload_with_metadata(mock_upsert, isolated_dedup_store):
     """File upload with JSON-encoded user_metadata propagates to chunks."""
     content = b"Uploaded content with metadata."
 

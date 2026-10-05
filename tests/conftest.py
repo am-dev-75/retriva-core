@@ -16,6 +16,11 @@ import pytest
 import os
 from pathlib import Path
 
+# Durable jobs (Spec 025 §3.12): the fixed-resolver tenant is mandatory
+# and validated at API startup; every API test session gets a valid
+# default so the lifespan check passes hermetically.
+os.environ.setdefault("RETRIVA_JOBS_DEFAULT_TENANT", "test-tenant")
+
 @pytest.fixture
 def mock_mirror_dir(tmp_path):
     mirror = tmp_path / "mirror"
@@ -304,3 +309,53 @@ def pg_platform_stack(tmp_path_factory):
             cluster.stop()
         if cleanup_dir is not None:
             _shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Durable-jobs integration (Spec 025): a scratch database with
+# core.platform + core.jobs applied, and the process-wide durable
+# service bound to it with the production LOCAL executor (no Celery
+# in tests).  Modules that exercise v2 submission endpoints request
+# these fixtures explicitly; nothing is forced on unrelated tests.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def durable_jobs_database(pg_platform_stack):
+    """Scratch database with the core.platform and core.jobs streams
+    applied (the same one-shot the deployment performs)."""
+    from retriva.infrastructure.postgres.migrations import (
+        CORE_PLATFORM_STREAM,
+        load_provider_registry,
+        upgrade as framework_upgrade,
+    )
+
+    settings = pg_platform_stack.fresh_database(
+        "retriva_pg_test_jobs_shared")
+    registry = load_provider_registry("")
+    from retriva.jobs.migrations import jobs_provider
+    registry.register_core_stream(jobs_provider())
+    result = framework_upgrade(registry, settings)
+    assert [a["version"] for a in
+            result[CORE_PLATFORM_STREAM][0]["applied"]] == [1]
+    assert [a["version"] for a in
+            result["core.jobs"][0]["applied"]] == [1]
+    return settings
+
+
+@pytest.fixture()
+def durable_service(durable_jobs_database):
+    """Bind the durable jobs service singleton to the scratch
+    database for the current test (production local-transport
+    wiring: LocalExecutor + LocalPublisher, no Celery)."""
+    from retriva.ingestion_api import durable_jobs as dj
+
+    dj.reset_jobs_service()
+    try:
+        from retriva.jobs.repository import PostgresJobsRepository
+
+        service = dj.build_service(
+            repo=PostgresJobsRepository(durable_jobs_database))
+        dj._service = service
+        yield service
+    finally:
+        dj.reset_jobs_service()

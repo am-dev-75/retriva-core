@@ -337,6 +337,40 @@ class ProviderRegistry:
                 "it")
         self._providers[provider.stream_id] = provider
 
+    def register_core_stream(self, provider: MigrationProvider) -> None:
+        """Register an ADDITIONAL Core-owned stream (Core→Core import
+        only; Spec 025: ``core.jobs`` is registered by the Core
+        migration CLI next to ``core.platform``).
+
+        The same namespace rules apply: the provider id must be the
+        Core provider id, the stream must live in the ``core.``
+        namespace, and neither the platform stream nor any stream may
+        be registered twice."""
+        _validate_identity(provider)
+        if provider.provider_id != CORE_PROVIDER_ID:
+            raise MigrationError(
+                f"Core streams must be owned by the Core provider "
+                f"'{CORE_PROVIDER_ID}'; provider "
+                f"'{provider.provider_id}' is refused (impersonation "
+                "rules apply in both directions)")
+        if not provider.stream_id.startswith("core."):
+            raise MigrationError(
+                f"stream '{provider.stream_id}' must live in the "
+                "'core.' namespace to be registered as a Core stream")
+        if provider.stream_id == CORE_PLATFORM_STREAM:
+            raise MigrationError(
+                f"stream '{CORE_PLATFORM_STREAM}' is registered "
+                "exactly once through register_core_platform")
+        if provider.stream_id in self._providers:
+            raise MigrationError(
+                f"migration stream '{provider.stream_id}' is already "
+                "registered")
+        if not self._core_platform_registered:
+            raise MigrationError(
+                "register_core_platform must be called before any "
+                "additional Core stream is registered")
+        self._providers[provider.stream_id] = provider
+
     # -- Resolution -------------------------------------------------------
 
     def stream_ids(self) -> List[str]:

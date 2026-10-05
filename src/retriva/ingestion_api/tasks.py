@@ -137,11 +137,30 @@ def _clear_cancel_flag(job_id: str) -> None:
 
 
 # ── Task definitions ─────────────────────────────────────────────────────
+#
+# Spec 025 integration: the task bodies run the DURABLE worker
+# protocol (PostgreSQL-authoritative attempt lifecycle: atomic claim,
+# throttled durable cancellation checks, durable progress, durable
+# retry scheduling).  Celery retry counters are diagnostic only; the
+# Redis job-state/cancel keys and the Redis OOM counter are retired
+# from the integrated flow (diagnostic helpers remain for the legacy
+# status fallback only).  No execution happens outside the durable
+# attempt model.
 
 def _register_tasks(app):
-    """Register Celery tasks on the app. Called once during app init."""
+    """Register Celery tasks on the app. Called once during app init
+    (idempotent: BOTH sides of the dispatch need the same registry —
+    the worker consumes by these names and the publisher resolves the
+    preallocated task by name (Spec 025 dispatch); a second call is a
+    no-op)."""
+    if getattr(app, "_retriva_tasks_registered", False):
+        return
+    app._retriva_tasks_registered = True
 
-    from retriva.ingestion_api.job_manager import JobStatus
+    from retriva.ingestion_api.durable_jobs import (
+        run_document_job,
+        run_mediawiki_job,
+    )
 
     @app.task(
         name="retriva.ingestion_api.tasks.process_document_task",
@@ -152,6 +171,10 @@ def _register_tasks(app):
     def process_document_task(
         self,
         job_id: str,
+        attempt_id: str,
+        tenant_id: str,
+        dispatch_token: str,
+        celery_task_id: str,
         source_uri: str,
         content_type: Optional[str],
         user_metadata: Optional[Dict[str, object]],
@@ -166,69 +189,24 @@ def _register_tasks(app):
         created_at: Optional[str] = None,
         collection_name: Optional[str] = None,
     ):
-        """Celery task that runs the full v2 ingestion pipeline.
+        """Durable v2 document ingestion attempt (Spec 025).
 
-        This is the Celery equivalent of ``BackgroundTasks.add_task(
-        process_document_v2, ...)``.
+        The protocol arguments carry the durable job/attempt identity
+        (dispatched with the PREALLOCATED Celery task id); the claim
+        protocol owns duplicate-delivery classification.
         """
-        from retriva.ingestion_api.routers.v2_documents import process_document_v2
-        from retriva.indexing.qdrant_store import set_collection_name, _collection_name_ctx, DEFAULT_COLLECTION_NAME
-
-        # Load extensions in the worker process. The API process loads them
-        # at startup, but Celery workers are separate processes — without
-        # this, extension capabilities (e.g. the CRM post_ingest_hook) are
-        # missing and post-indexing hooks silently don't run.
-        from retriva.registry import CapabilityRegistry
-        CapabilityRegistry().load_extensions()
-
-        logger.info(f"Celery task started: job_id={job_id}, source={source_uri}, collection={collection_name}")
-        
-        col = collection_name or DEFAULT_COLLECTION_NAME
-        token = set_collection_name(col)
-
-        # Track OOM-kill re-queues: Celery's task_reject_on_worker_lost=True
-        # re-delivers the task after a SIGKILL, but doesn't increment the
-        # Celery retry counter.  We use Redis to count attempts and bail out
-        # after max_retries+1 tries.
-        max_retries = settings.celery_task_max_retries or 3
-        attempt = _increment_retry_count(content_hash or job_id)
-        if attempt > max_retries + 1:
-            logger.error(
-                f"Celery task giving up: job_id={job_id}, "
-                f"attempts={attempt}, max={max_retries + 1} — "
-                f"likely OOM-kill loop"
-            )
-            _set_job_state(job_id, {
-                "job_id": job_id,
-                "status": JobStatus.FAILED.value,
-                "error": (
-                    f"Task failed after {attempt} attempts — "
-                    f"likely OOM-kill during processing. "
-                    f"Consider increasing Docker memory limits or reducing "
-                    f"the document size."
-                ),
-            })
-            return  # Don't re-raise; just stop retrying
-
-        logger.info(f"Celery task attempt {attempt}/{max_retries + 1}: job_id={job_id}")
-
-        # Build a cancel_check that polls Redis instead of the in-memory
-        # JobManager singleton.
-        def cancel_check():
-            return _is_cancel_requested(job_id)
-
-        # Stage-change callback: sync job state to Redis so the API process
-        # can report real-time progress to the user.
-        def on_stage_change(state: dict):
-            _set_job_state(job_id, state)
-
-        try:
-            process_document_v2(
+        return run_document_job(
+            self,
+            job_id=job_id,
+            attempt_id=attempt_id,
+            tenant_id=tenant_id,
+            dispatch_token=dispatch_token,
+            celery_task_id=celery_task_id,
+            payload=dict(
                 source_uri=source_uri,
                 content_type=content_type,
                 user_metadata=user_metadata,
                 parser_hint=parser_hint,
-                job_id=job_id,
                 temp_path=temp_path,
                 doc_id=doc_id,
                 content_hash=content_hash,
@@ -237,30 +215,9 @@ def _register_tasks(app):
                 content_size=content_size,
                 ingestion_status=ingestion_status,
                 created_at=created_at,
-                _cancel_check=cancel_check,
-                _on_stage_change=on_stage_change,
-            )
-
-            # Sync final state to Redis
-            from retriva.ingestion_api.job_manager import JobManager
-            job = JobManager().get_job(job_id)
-            if job:
-                _set_job_state(job_id, job.to_dict())
-            _clear_cancel_flag(job_id)
-            _clear_retry_count(content_hash or job_id)
-
-        except Exception as exc:
-            logger.error(f"Celery task failed: job_id={job_id}, error={exc}")
-            # Mark job as failed in Redis
-            _set_job_state(job_id, {
-                "job_id": job_id,
-                "status": JobStatus.FAILED.value,
-                "error": str(exc),
-            })
-            # Retry with exponential backoff for transient failures
-            raise self.retry(exc=exc, countdown=2 ** self.request.retries)
-        finally:
-            _collection_name_ctx.reset(token)
+                collection_name=collection_name,
+            ),
+        )
 
     @app.task(
         name="retriva.ingestion_api.tasks.process_mediawiki_task",
@@ -271,97 +228,33 @@ def _register_tasks(app):
     def process_mediawiki_task(
         self,
         job_id: str,
+        attempt_id: str,
+        tenant_id: str,
+        dispatch_token: str,
+        celery_task_id: str,
         staged_dir: str,
         user_metadata: Optional[Dict[str, object]],
         kb_id: str,
         collection_name: Optional[str] = None,
     ):
-        """Celery task for MediaWiki export ingestion."""
-        from retriva.ingestion.mediawiki_v2_parser import process_mediawiki_export
-        from retriva.ingestion_api.job_manager import JobManager
-        from retriva.indexing.qdrant_store import set_collection_name, _collection_name_ctx, DEFAULT_COLLECTION_NAME
-
-        logger.info(f"Celery MediaWiki task started: job_id={job_id}, dir={staged_dir}, collection={collection_name}")
-        
-        col = collection_name or DEFAULT_COLLECTION_NAME
-        token = set_collection_name(col)
-
-        def cancel_check():
-            return _is_cancel_requested(job_id)
-
-        try:
-            manager = JobManager()
-            manager.start_job(job_id)
-
-            process_mediawiki_export(
-                staged_dir,
-                user_metadata,
-                kb_id,
-                cancel_check,
-                job_id,
-            )
-
-            manager.complete_job(job_id)
-            job = manager.get_job(job_id)
-            if job:
-                _set_job_state(job_id, job.to_dict())
-            _clear_cancel_flag(job_id)
-
-        except Exception as exc:
-            logger.error(f"Celery MediaWiki task failed: job_id={job_id}, error={exc}")
-            from retriva.ingestion_api.job_manager import JobManager
-            try:
-                JobManager().fail_job(job_id, str(exc))
-            except Exception:
-                pass
-            _set_job_state(job_id, {
-                "job_id": job_id,
-                "status": JobStatus.FAILED.value,
-                "error": str(exc),
-            })
-            raise self.retry(exc=exc, countdown=2 ** self.request.retries)
-        finally:
-            _collection_name_ctx.reset(token)
+        """Durable MediaWiki export ingestion attempt (Spec 025)."""
+        return run_mediawiki_job(
+            self,
+            job_id=job_id,
+            attempt_id=attempt_id,
+            tenant_id=tenant_id,
+            dispatch_token=dispatch_token,
+            celery_task_id=celery_task_id,
+            payload=dict(
+                staged_dir=staged_dir,
+                user_metadata=user_metadata,
+                kb_id=kb_id,
+                collection_name=collection_name,
+            ),
+        )
 
 
-# ── Public dispatch functions (called from the API) ──────────────────────
-
-def dispatch_document_task(payload: dict) -> str:
-    """Enqueue a document ingestion task via Celery.
-
-    Returns the Celery task ID (used as the job_id).
-    """
-    app = _get_celery()
-    if app is None:
-        raise RuntimeError("Celery is not configured")
-
-    # Ensure tasks are registered
-    if not app.tasks.get("retriva.ingestion_api.tasks.process_document_task"):
-        _register_tasks(app)
-
-    result = app.tasks["retriva.ingestion_api.tasks.process_document_task"].delay(
-        **payload,
-    )
-    return result.id
-
-
-def dispatch_mediawiki_task(payload: dict) -> str:
-    """Enqueue a MediaWiki ingestion task via Celery.
-
-    Returns the Celery task ID (used as the job_id).
-    """
-    app = _get_celery()
-    if app is None:
-        raise RuntimeError("Celery is not configured")
-
-    if not app.tasks.get("retriva.ingestion_api.tasks.process_mediawiki_task"):
-        _register_tasks(app)
-
-    result = app.tasks["retriva.ingestion_api.tasks.process_mediawiki_task"].delay(
-        **payload,
-    )
-    return result.id
-
+# ── Legacy cancellation surface (still used by legacy flows) ─────────────
 
 def request_task_cancellation(job_id: str) -> bool:
     """Request cancellation of a Celery task.
@@ -372,9 +265,10 @@ def request_task_cancellation(job_id: str) -> bool:
     if app is None:
         return False
 
-    # Revoke the Celery task (terminates if running)
+    # Revoke the Celery task (best-effort transport aid only; NEVER a
+    # guarantee that running work is interrupted — Spec 025 §3.3).
     app.control.revoke(job_id, terminate=False)
-    # Set Redis flag for cooperative cancellation
+    # Legacy Redis flag for legacy cooperative cancellation.
     _set_cancel_flag(job_id)
     return True
 

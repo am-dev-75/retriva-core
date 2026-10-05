@@ -50,6 +50,7 @@ from retriva.infrastructure.postgres.migrations import (
     PROVIDERS_ENV,
     LEDGER_TABLE,
     downgrade,
+    load_provider_modules,
     load_provider_registry,
     status,
     upgrade,
@@ -58,6 +59,14 @@ from retriva.infrastructure.postgres.migrations import (
 from retriva.logger import get_logger
 
 _log = get_logger(__name__)
+
+#: Core-owned migration streams registered by THIS CLI next to
+#: ``core.platform`` (Core→Core import only; Spec 025).  The existing
+#: core one-shot therefore applies ``core.jobs`` without any Compose
+#: change and without any extension provider listed.  Extension
+#: providers (``RETRIVA_PG_MIGRATION_PROVIDERS`` / ``--providers``)
+#: remain deployment-listed and may never own ``core.*`` streams.
+CORE_STREAM_PROVIDER_MODULES = ("retriva.jobs.migrations",)
 
 
 def _cli_summary(data) -> str:
@@ -109,7 +118,14 @@ def _registry_from(providers_csv: Optional[str]):
     csv_value = (providers_csv
                  if providers_csv is not None
                  else os.environ.get(PROVIDERS_ENV, ""))
-    return load_provider_registry(csv_value)
+    registry = load_provider_registry(csv_value)
+    # Core-owned streams are registered by the Core CLI itself
+    # (Core→Core import; deterministic ordering places them after
+    # ``core.platform`` per their declared dependencies).
+    for module_path in CORE_STREAM_PROVIDER_MODULES:
+        for provider in load_provider_modules(module_path):
+            registry.register_core_stream(provider)
+    return registry
 
 
 def main(argv: Optional[List[str]] = None) -> int:

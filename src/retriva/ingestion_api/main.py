@@ -26,6 +26,19 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Initializing Modular Injection API...")
+    # Durable jobs tenant posture (Spec 025 §3.12): the fixed-resolver
+    # tenant is MANDATORY and validated at startup (fail fast; never a
+    # mid-request 500). No authenticated resolver is enabled in the
+    # current deployment posture, so the server-configured tenant must
+    # be present before the API accepts traffic.
+    try:
+        from retriva.jobs.tenant import tenant_resolver
+        tenant_resolver()
+    except Exception as e:
+        logger.error(
+            f"Durable jobs tenant configuration invalid: "
+            f"{e.__class__.__name__}: {e}")
+        raise
     try:
         client = get_client()
         init_collection(client)

@@ -125,6 +125,14 @@ def get_celery_app():
     # Auto-discover tasks module
     app.autodiscover_tasks(["retriva.ingestion_api"], "tasks")
 
+    # Publisher-side registration (Spec 025 §3.4): the dispatch
+    # resolves the task by name BEFORE publishing; an unregistered
+    # task fails safe as an ambiguous publication.  Registering
+    # eagerly here makes the publisher's task registry identical to
+    # the worker's (idempotent on the worker side too).
+    from retriva.ingestion_api.tasks import _register_tasks
+    _register_tasks(app)
+
     # ── Unified log format ──────────────────────────────────────────────
     # Match Retriva's standard format:
     #   [20260625 19:21:12] [INFO/ForkPoolWorker-1] message

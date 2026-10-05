@@ -30,6 +30,11 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
 
+# Spec 025: the v2 submission endpoints run the durable job lifecycle
+# (PostgreSQL authoritative); bind the durable service to the scratch
+# jobs database for every test in this module.
+pytestmark = pytest.mark.usefixtures("durable_service")
+
 # Ensure default implementations are registered
 import retriva.ingestion.chunker              # noqa: F401
 import retriva.ingestion.html_parser          # noqa: F401

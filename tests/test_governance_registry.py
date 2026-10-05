@@ -190,6 +190,28 @@ class SpecAdrRegistryIntegrity(unittest.TestCase):
         self.assertEqual(adr_029[0]["repository"],
                          "retriva-crm-assistant")
 
+        # Spec 025 / ADR-030 are the durable-jobs artifacts: they
+        # were registered before first presentation (Constitution
+        # §43), reviewed with CHANGES_REQUESTED, revised, and then
+        # explicitly ACCEPTED by the owner on 2026-10-04; the
+        # registry must reflect the accepted lifecycle status.
+        spec_025 = [e for e in self.specs if e["number"] == "025"]
+        self.assertEqual(len(spec_025), 1)
+        self.assertEqual(spec_025[0]["status"], "accepted")
+        self.assertEqual(spec_025[0]["repository"], "retriva-core")
+        self.assertTrue(
+            (WORKSPACE / spec_025[0]["repository"]
+             / spec_025[0]["path"]).exists())
+
+        adr_030 = [e for e in self.adrs if e["number"] == "030"]
+        self.assertEqual(len(adr_030), 1)
+        self.assertEqual(adr_030[0]["status"], "accepted")
+        self.assertEqual(adr_030[0]["repository"],
+                         "retriva-crm-assistant")
+        self.assertTrue(
+            (WORKSPACE / adr_030[0]["repository"]
+             / adr_030[0]["path"]).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

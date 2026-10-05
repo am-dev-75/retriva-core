@@ -36,7 +36,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, Response, UploadFile, status
 
 from retriva.config import settings
 from retriva.domain.models import CanonicalRecord, ParsedDocument
@@ -379,34 +379,43 @@ def process_document_v2(
     created_at: Optional[str] = None,
     _cancel_check: Optional["callable"] = None,
     _on_stage_change: Optional["callable"] = None,
+    recorder=None,
 ):
     """Execute the 6-stage v2 ingestion pipeline in a background thread.
 
-    When ``_cancel_check`` is provided (e.g. by the Celery task wrapper), it
-    is used instead of the in-memory JobManager's ``is_cancel_requested``.
-    This allows the pipeline to run in a separate worker process while still
-    supporting cooperative cancellation via Redis.
+    When ``_cancel_check`` is provided (e.g. by the durable worker
+    protocol), it is used instead of the in-memory JobManager's
+    ``is_cancel_requested``.
 
-    When ``_on_stage_change`` is provided, it is called with the job's
-    current state dict after each stage transition, allowing the Celery
-    task to sync status to Redis for cross-process visibility.
+    When ``recorder`` is provided (Spec 025 durable integration), it is
+    the ONLY progress sink: PostgreSQL is the sole authoritative job
+    store for the integrated flow and the in-memory JobManager is not
+    touched.  The recorder implements the same surface (start_job /
+    advance_stage / set_stage_detail / complete_job / mark_cancelled /
+    fail_job / get_job / is_cancel_requested).
     """
-    manager = JobManager()
-    # When running in a Celery worker process, the job was created in the
-    # API process and doesn't exist in this process's JobManager singleton.
-    # Register it locally so that start_job / advance_stage / set_stage_detail
-    # work and _sync_state can report progress to Redis.
-    if manager.get_job(job_id) is None:
-        from retriva.ingestion_api.job_manager import Job as _Job, JobStatus as _JS
-        with manager._lock:
-            manager._jobs[job_id] = _Job(
-                id=job_id,
-                status=_JS.PENDING,
-                source=source_uri,
-                job_type="v2_document",
-            )
-    manager.start_job(job_id)
-    cancel_check = _cancel_check or (lambda: manager.is_cancel_requested(job_id))
+    if recorder is not None:
+        manager = recorder
+        cancel_check = _cancel_check
+    else:
+        manager = JobManager()
+        # When running in a Celery worker process, the job was created in the
+        # API process and doesn't exist in this process's JobManager singleton.
+        # Register it locally so that start_job / advance_stage / set_stage_detail
+        # work and _sync_state can report progress to Redis.
+        if manager.get_job(job_id) is None:
+            from retriva.ingestion_api.job_manager import Job as _Job, JobStatus as _JS
+            with manager._lock:
+                manager._jobs[job_id] = _Job(
+                    id=job_id,
+                    status=_JS.PENDING,
+                    source=source_uri,
+                    job_type="v2_document",
+                )
+        manager.start_job(job_id)
+        cancel_check = _cancel_check or (lambda: manager.is_cancel_requested(job_id))
+    if cancel_check is None:  # defensive: never run without a check
+        cancel_check = lambda: False
 
     def _sync_state():
         if _on_stage_change:
@@ -781,9 +790,9 @@ def process_document_v2(
         # starts clean (the Celery task is not retried on cancellation).
         _cleanup_checkpoints(job_id)
     except Exception as e:
-        manager.fail_job(job_id, str(e))
+        manager.fail_job(job_id, e.__class__.__name__)
         _sync_state()
-        logger.error(f"Job {job_id} failed: {e}")
+        logger.error(f"Job {job_id} failed: {e.__class__.__name__}")
         # A failed ingest must not leave behind a catalog record or orphaned
         # Qdrant chunks.  The catalog record would make the next upload of
         # the same file be treated as an already-ingested duplicate and skip
@@ -1036,34 +1045,34 @@ async def search_documents_v2(request: DocumentSearchRequest):
 async def ingest_document_v2(
     payload: DocumentIngestRequestV2,
     background_tasks: BackgroundTasks,
+    request: Request,
 ) -> IngestResponseV2:
     """Generic multi-parser ingestion (JSON body with ``source_uri``)."""
     # KB enforcement (SDD): unknown kb_id → 404 before any work is scheduled.
     require_kb_exists(payload.kb_id)
     logger.debug(f"v2 ingest request: source_uri={payload.source_uri} kb_id={payload.kb_id}")
-    manager = JobManager()
-    job = manager.create_job(source=payload.source_uri, job_type="v2_document")
 
-    task_payload = dict(
+    # Durable submission (Spec 025): PostgreSQL is the authoritative
+    # job store; the tenant is resolved server-side (trust model),
+    # never from ordinary request input.
+    from retriva.ingestion_api.durable_jobs import (
+        resolve_request_tenant,
+        submit_document_job,
+    )
+    tenant_id = resolve_request_tenant(request)
+    submission = submit_document_job(
+        tenant_id=tenant_id,
         source_uri=payload.source_uri,
         content_type=payload.content_type,
         user_metadata=payload.user_metadata,
         parser_hint=payload.parser_hint,
-        job_id=job.id,
         kb_id=payload.kb_id,
-    )
-
-    from retriva.ingestion_api.celery_app import celery_enabled
-    if celery_enabled():
-        from retriva.ingestion_api.tasks import dispatch_document_task
-        dispatch_document_task(task_payload)
-    else:
-        background_tasks.add_task(process_document_v2, **task_payload)
+        background_tasks=background_tasks)
 
     return IngestResponseV2(
         status="accepted",
         message="Document accepted for processing",
-        job_id=job.id,
+        job_id=submission.job.id,
     )
 
 
@@ -1075,6 +1084,7 @@ async def ingest_document_v2(
 async def ingest_mediawiki_export_v2(
     payload: MediaWikiExportRequestV2,
     background_tasks: BackgroundTasks,
+    request: Request,
 ) -> IngestResponseV2:
     """Ingest a MediaWiki XML export directory with per-page granularity.
 
@@ -1087,35 +1097,25 @@ async def ingest_mediawiki_export_v2(
         f"v2 MediaWiki export request: staged_dir={payload.staged_dir} "
         f"kb_id={payload.kb_id}"
     )
-    manager = JobManager()
-    job = manager.create_job(source=payload.staged_dir, job_type="v2_mediawiki")
 
-    from retriva.ingestion.mediawiki_v2_parser import process_mediawiki_export
-
-    task_payload = dict(
-        job_id=job.id,
+    # Durable submission (Spec 025): PostgreSQL is the authoritative
+    # job store; the tenant is resolved server-side (trust model).
+    from retriva.ingestion_api.durable_jobs import (
+        resolve_request_tenant,
+        submit_mediawiki_job,
+    )
+    tenant_id = resolve_request_tenant(request)
+    submission = submit_mediawiki_job(
+        tenant_id=tenant_id,
         staged_dir=payload.staged_dir,
         user_metadata=payload.user_metadata,
         kb_id=payload.kb_id,
-    )
+        background_tasks=background_tasks)
 
-    from retriva.ingestion_api.celery_app import celery_enabled
-    if celery_enabled():
-        from retriva.ingestion_api.tasks import dispatch_mediawiki_task
-        dispatch_mediawiki_task(task_payload)
-    else:
-        background_tasks.add_task(
-            process_mediawiki_export,
-            payload.staged_dir,
-            payload.user_metadata,
-            payload.kb_id,
-            lambda: manager.is_cancel_requested(job.id),
-            job.id,
-        )
     return IngestResponseV2(
         status="accepted",
         message="MediaWiki export accepted for processing",
-        job_id=job.id,
+        job_id=submission.job.id,
     )
 
 
@@ -1126,6 +1126,7 @@ async def ingest_mediawiki_export_v2(
 )
 async def upload_document_v2(
     background_tasks: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
     source_path: str = Form(...),
     content_type: str = Form(None),
@@ -1307,9 +1308,6 @@ async def upload_document_v2(
     )
     dedup_store.create_record(record)
 
-    manager = JobManager()
-    job = manager.create_job(source=source_path, job_type="v2_upload")
-
     # Save bytes to temp file in the SHARED storage volume so the Celery
     # worker (separate container) can access it.  Using /tmp would make the
     # file invisible to the worker.
@@ -1326,7 +1324,6 @@ async def upload_document_v2(
         content_type=content_type,
         user_metadata=parsed_metadata,
         parser_hint=None,
-        job_id=job.id,
         temp_path=temp_path,
         doc_id=doc_id,
         content_hash=content_hash,
@@ -1337,12 +1334,28 @@ async def upload_document_v2(
         created_at=record.created_at,
     )
 
-    from retriva.ingestion_api.celery_app import celery_enabled
-    if celery_enabled():
-        from retriva.ingestion_api.tasks import dispatch_document_task
-        dispatch_document_task(task_payload)
-    else:
-        background_tasks.add_task(process_document_v2, **task_payload)
+    # Durable submission (Spec 025): PostgreSQL is the authoritative
+    # job store; the tenant is resolved server-side (trust model).
+    from retriva.ingestion_api.durable_jobs import (
+        resolve_request_tenant,
+        submit_upload_job,
+    )
+    tenant_id = resolve_request_tenant(request)
+    submission = submit_upload_job(
+        tenant_id=tenant_id,
+        source_path=source_path,
+        content_type=content_type,
+        user_metadata=parsed_metadata,
+        parser_hint=None,
+        temp_path=temp_path,
+        doc_id=doc_id,
+        content_hash=content_hash,
+        kb_id=kb_id,
+        source_paths=[source_path],
+        content_size=content_size,
+        ingestion_status="completed",
+        created_at=record.created_at,
+        background_tasks=background_tasks)
 
     logger.info(
         f"new_document_ingestion_started: doc_id={doc_id}, kb_id={kb_id}, "
@@ -1352,7 +1365,7 @@ async def upload_document_v2(
     return IngestResponseV2(
         status="accepted",
         message=f"File '{filename}' accepted for processing.",
-        job_id=job.id,
+        job_id=submission.job.id,
         doc_id=doc_id,
         content_hash=content_hash,
         deduplicated=False,
