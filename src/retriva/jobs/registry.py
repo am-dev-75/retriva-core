@@ -95,5 +95,14 @@ def job_type_registry() -> JobTypeRegistry:
             restart_safe=False,
             description="v2 file upload ingestion pipeline",
         ))
+        registry.register(JobTypeSpec(
+            job_type="v2_artifact",
+            task_name="retriva.ingestion_api.tasks.process_artifact_task",
+            restart_safe=False,
+            description=(
+                "v2 artifact generation (document_list/basic_report "
+                "renderers; basic_report may incur LLM provider cost "
+                "— never replayed automatically; Spec 026)"),
+        ))
         _registry = registry
     return _registry

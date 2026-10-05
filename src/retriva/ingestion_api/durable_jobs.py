@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -368,10 +370,123 @@ def mediawiki_handler(service: JobsService, tenant_id: str, job_id: str,
     return _run
 
 
+def artifact_handler(service: JobsService, tenant_id: str, job_id: str,
+                     payload: Dict[str, Any]):
+    """Adapter running the v2 artifact generation on the durable
+    lifecycle (Spec 026 / ADR-031).  ONE handler for both the Celery
+    worker and the local BackgroundTasks fallback.
+
+    Collection context: validated against the DURABLE submission
+    record (never re-inferred from mutable process-global state);
+    missing, malformed, or no-longer-permitted context fails safe
+    (non-retryable).  Handler/render failures are non-retryable:
+    the input is deterministic, so a new attempt would fail again or
+    repeat provider cost (basic_report LLM call)."""
+    from retriva.ingestion_api.job_manager import CancellationError
+
+    # Renderer registration is an import side effect; the WORKER
+    # process never imports the artifact router, so the execution
+    # path registers the renderers explicitly (Spec 026 §9; idempotent
+    # module imports).
+    import retriva.rendering.markdown_renderer       # noqa: F401
+    import retriva.rendering.pdf_renderer            # noqa: F401
+    import retriva.rendering.docx_renderer           # noqa: F401
+    import retriva.rendering.xlsx_renderer           # noqa: F401
+    import retriva.rendering.opendocument_renderer   # noqa: F401
+
+    def _run(job: JobRecord, attempt, cancel_check: Callable[[], bool],
+             worker_id: str) -> HandlerOutcome:
+        from retriva.indexing.qdrant_store import (
+            DEFAULT_COLLECTION_NAME,
+            _collection_name_ctx,
+            set_collection_name,
+        )
+
+        from retriva.rendering import services as rendering_services
+        recorder = DurableProgressRecorder(
+            service, tenant_id, job_id, attempt.id)
+        # Payload-contract gate (Spec 026 §6): unknown persisted
+        # versions never reach execution (fail safe; no arbitrary
+        # behavior from persisted strings).
+        if job.payload_version != PAYLOAD_VERSION_V2:
+            return HandlerOutcome(
+                kind="failure",
+                error=SanitizedError(
+                    code="payload_version_unsupported",
+                    summary="artifact payload contract version is "
+                            "not supported"),
+                retryable=False,
+                detail={"payload_version": str(job.payload_version)})
+        local_payload = dict(payload)
+        collection_context = local_payload.pop("collection_context", None)
+        token = None
+        progress_token = None
+        try:
+            # Durable collection context validation (binding owner
+            # decision, Spec 026 §8): the durable record must carry a
+            # well-formed context that is still permitted (the
+            # server-configured collection); execution uses ONLY the
+            # durable value.
+            if (not isinstance(collection_context, str)
+                    or not collection_context
+                    or len(collection_context) > 128
+                    or collection_context != DEFAULT_COLLECTION_NAME):
+                return HandlerOutcome(
+                    kind="failure",
+                    error=SanitizedError(
+                        code="collection_context_invalid",
+                        summary="collection context is missing, "
+                                "malformed, or no longer permitted"),
+                    retryable=False,
+                    detail={"reason": "collection_context_invalid"})
+            token = set_collection_name(collection_context)
+
+            def _progress(phase: str) -> None:
+                recorder.advance_stage(job_id, phase)
+
+            progress_token = rendering_services._artifact_progress_cb.set(
+                _progress)
+
+            result = run_artifact_generation(
+                recorder=recorder,
+                cancel_check=cancel_check,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                **local_payload)
+        except CancellationError:
+            recorder.mark_cancelled(job_id)
+            return recorder.outcome()
+        except Exception as exc:  # noqa: BLE001 - classified below
+            # Non-retryable: rendering is deterministic given the
+            # durable input; a retry would fail again or repeat
+            # provider cost (Spec 026 §13).
+            return HandlerOutcome(
+                kind="failure",
+                error=SanitizedError(
+                    code=error_code_for_exception(exc),
+                    summary=sanitize_error_summary(
+                        exc.__class__.__name__)),
+                retryable=False,
+                detail={"exception_class": exc.__class__.__name__})
+        finally:
+            if progress_token is not None:
+                rendering_services._artifact_progress_cb.reset(
+                    progress_token)
+            if token is not None:
+                _collection_name_ctx.reset(token)
+        recorder.complete_job(job_id)
+        outcome = recorder.outcome()
+        outcome.result_metadata = result
+        return outcome
+
+    return _run
+
+
 _HANDLERS: Dict[str, Callable] = {
     "v2_document": document_handler,
     "v2_upload": document_handler,
     "v2_mediawiki": mediawiki_handler,
+    "v2_artifact": artifact_handler,
 }
 
 
@@ -432,6 +547,22 @@ def run_mediawiki_job(task, *, job_id: str, attempt_id: str,
             tenant_id, dispatch_token, celery_task_id)
     finally:
         _collection_name_ctx.reset(token)
+
+
+def run_artifact_job(task, *, job_id: str, attempt_id: str,
+                     tenant_id: str, dispatch_token: str,
+                     celery_task_id: str, payload: Dict[str, Any]) -> str:
+    """Celery body for the v2 artifact task (Spec 026).  The
+    collection context is validated INSIDE the handler from the
+    durable submission record (never re-inferred from process-global
+    state), so the task body passes the payload through untouched."""
+    from retriva.registry import CapabilityRegistry
+
+    CapabilityRegistry().load_extensions()
+    service = jobs_service()
+    return _execute_via_protocol(
+        task, service, "v2_artifact", payload, job_id, attempt_id,
+        tenant_id, dispatch_token, celery_task_id)
 
 
 def _execute_via_protocol(task, service: JobsService, job_type: str,
@@ -582,3 +713,134 @@ def _dispatch_submitted(service: JobsService, job: JobRecord,
     if runner is not None and background_tasks is not None:
         background_tasks.add_task(runner)
     return SubmissionResult(job=job, created=True, local_runner=runner)
+
+
+def submit_artifact_job(*, tenant_id: str, artifact_id: str,
+                        artifact_type: str, format: str,
+                        parameters: Optional[Dict[str, Any]],
+                        user_metadata: Optional[Dict[str, Any]],
+                        collection_context: str,
+                        background_tasks=None) -> SubmissionResult:
+    """Durable v2 artifact submission + dispatch (Spec 026 / ADR-031).
+
+    Binding contract: NO idempotency key (every accepted submission
+    creates a NEW artifact + durable job); a canonical input
+    fingerprint is persisted for diagnostics/reconciliation; the
+    collection context is the server-resolved, bounded normalized
+    reference (never client input); the artifact id is server-
+    generated and persisted as the durable subject."""
+    service = jobs_service()
+    payload = dict(
+        artifact_id=artifact_id, artifact_type=artifact_type,
+        format=format, parameters=parameters or {},
+        user_metadata=user_metadata,
+        collection_context=collection_context)
+    input_metadata = dict(payload)
+    input_metadata["input_fingerprint"] = fingerprint_for(payload)
+    job = service.submit(
+        tenant_id=tenant_id, job_type="v2_artifact",
+        execution_transport=_transport(),
+        input_metadata=input_metadata,
+        subject_type="artifact", subject_id=artifact_id,
+        payload_version=_default_payload_version())
+    return _dispatch_submitted(service, job, payload, background_tasks)
+
+
+def run_artifact_generation(*, recorder, cancel_check, tenant_id: str,
+                            job_id: str, artifact_id: str,
+                            artifact_type: str, format: str,
+                            parameters: Optional[Dict[str, Any]],
+                            user_metadata: Optional[Dict[str, Any]],
+                            ) -> Dict[str, Any]:
+    """Render + ATOMIC finalization for one durable artifact attempt
+    (Spec 026 §10).  Raises ``CancellationError`` when cancellation
+    wins; every failure raises (the handler classifies).  Never
+    overwrites an existing artifact unless its provenance proves it
+    belongs to the same tenant, artifact, and durable job."""
+    from retriva.ingestion_api.job_manager import CancellationError
+    from retriva.indexing.qdrant_store import get_collection_name
+    from retriva.infrastructure.storage import LocalStorageProvider
+
+    from retriva.ingestion_api.artifact_store import (
+        artifact_paths,
+        hash_file,
+        media_type_for,
+        provenance_matches,
+        quarantine_partial,
+        read_provenance,
+        validate_artifact_id,
+        validate_format_extension,
+        write_provenance,
+    )
+
+    recorder.advance_stage(job_id, "rendering")
+    ext = validate_format_extension(format)
+    validate_artifact_id(artifact_id)
+    storage = LocalStorageProvider()
+    final, partial, prov_path = artifact_paths(
+        Path(storage.base_path), artifact_id, ext)
+
+    # Idempotent finalization: a complete artifact with provenance
+    # matching THIS job/tenant is adopted as-is (no overwrite).
+    if final.exists():
+        prov = read_provenance(prov_path)
+        if final == final and prov is not None:
+            try:
+                size, sha256 = hash_file(final)
+            except OSError:
+                size, sha256 = -1, ""
+            if provenance_matches(
+                    prov, tenant_id=tenant_id, artifact_id=artifact_id,
+                    job_id=job_id, sha256=sha256, size=size):
+                recorder.advance_stage(job_id, "finalizing")
+                recorder.complete_job(job_id)
+                return {
+                    "artifact_id": artifact_id,
+                    "storage_ref": str(final.relative_to(
+                        Path(storage.base_path))),
+                    "media_type": media_type_for(final.name),
+                    "size": size,
+                    "sha256": sha256,
+                }
+        raise ValueError(
+            "artifact output already exists without matching "
+            "provenance; overwrite refused")
+
+    from retriva.rendering import get_renderer
+    renderer = get_renderer(format)
+    if renderer is None:
+        raise LookupError(f"no renderer registered for {format!r}")
+
+    if not renderer.render(
+            artifact_type=artifact_type,
+            parameters=parameters or {},
+            output_path=partial,
+            cancel_check=cancel_check):
+        quarantine_partial(partial, prov_path)
+        if cancel_check is not None and cancel_check():
+            raise CancellationError("artifact rendering cancelled")
+        raise RuntimeError("artifact rendering failed")
+
+    if cancel_check is not None and cancel_check():
+        quarantine_partial(partial, prov_path)
+        raise CancellationError("artifact cancelled before finalization")
+
+    # Finalization: the partial file was flushed and closed by the
+    # renderer (render() returned); finalize atomically within the
+    # same directory.
+    recorder.advance_stage(job_id, "finalizing")
+    size, sha256 = hash_file(partial)
+    os.replace(partial, final)
+    storage_ref = str(final.relative_to(Path(storage.base_path)))
+    write_provenance(
+        prov_path, tenant_id=tenant_id, artifact_id=artifact_id,
+        job_id=job_id, format=format, sha256=sha256, size=size,
+        storage_ref=storage_ref)
+    recorder.complete_job(job_id)
+    return {
+        "artifact_id": artifact_id,
+        "storage_ref": storage_ref,
+        "media_type": media_type_for(final.name),
+        "size": size,
+        "sha256": sha256,
+    }

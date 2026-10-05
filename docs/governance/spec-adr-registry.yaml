@@ -249,6 +249,25 @@ specifications:
       implementation by the owner on 2026-10-04 (manual_review
       approved as bounded, non-terminal only)
 
+  - number: "026"
+    title: Durable v2 artifact generation jobs (Spec 025 extension)
+    repository: retriva-core
+    path: specs/026-v2-artifact-durable-jobs
+    status: accepted
+    allocated: "2026-10-05"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; migrates the v2 artifact generation workflow onto the
+      durable Core jobs subsystem created by Spec 025 (the v2
+      artifact flow was explicitly deferred by Spec 025 §4); one
+      registered non-restart-safe job type; BackgroundTasks fallback
+      and Celery share the same durable lifecycle; explicitly
+      accepted for implementation by the owner on 2026-10-05 with
+      four recorded decisions (preserved retrieval semantics with
+      server-resolved durable collection context; artifact files
+      never deleted by job retention; no client idempotency key;
+      ADR-031 Core-owned)
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -523,4 +542,20 @@ adrs:
       (2026-10-04) applied the owner decisions and was re-presented;
       explicitly accepted for implementation by the owner on
       2026-10-04 (acceptance event recorded in the ADR status
+      section)
+
+  - number: "031"
+    title: v2 artifact generation on the durable Core jobs lifecycle
+    repository: retriva-core
+    path: docs/adr/adr-031-v2-artifact-durable-jobs.md
+    status: accepted
+    allocated: "2026-10-05"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; applies the ADR-030 durable job lifecycle to the v2
+      artifact generation workflow (Retriva Core); records the
+      job-type contract, non-restart-safe classification, atomic
+      output finalization, and legacy JobManager retirement for this
+      workflow; explicitly accepted for implementation by the owner
+      on 2026-10-05 (acceptance event recorded in the ADR status
       section)

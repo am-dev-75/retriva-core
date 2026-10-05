@@ -212,6 +212,26 @@ class SpecAdrRegistryIntegrity(unittest.TestCase):
             (WORKSPACE / adr_030[0]["repository"]
              / adr_030[0]["path"]).exists())
 
+        # Spec 026 / ADR-031 are the v2 artifact durable-jobs
+        # artifacts: allocated before first presentation
+        # (Constitution §43), then explicitly ACCEPTED by the owner
+        # on 2026-10-05 (four decisions recorded in Spec 026 §8).
+        spec_026 = [e for e in self.specs if e["number"] == "026"]
+        self.assertEqual(len(spec_026), 1)
+        self.assertEqual(spec_026[0]["status"], "accepted")
+        self.assertEqual(spec_026[0]["repository"], "retriva-core")
+        self.assertTrue(
+            (WORKSPACE / spec_026[0]["repository"]
+             / spec_026[0]["path"]).exists())
+
+        adr_031 = [e for e in self.adrs if e["number"] == "031"]
+        self.assertEqual(len(adr_031), 1)
+        self.assertEqual(adr_031[0]["status"], "accepted")
+        self.assertEqual(adr_031[0]["repository"], "retriva-core")
+        self.assertTrue(
+            (WORKSPACE / adr_031[0]["repository"]
+             / adr_031[0]["path"]).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

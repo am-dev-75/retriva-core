@@ -14,6 +14,7 @@
 
 """Rendering services — provides data fetching and preparation for artifacts."""
 
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from retriva.logger import get_logger
@@ -22,8 +23,38 @@ from retriva.config import settings
 
 logger = get_logger(__name__)
 
+#: Task-scoped artifact progress callback (Spec 026): set by the
+#: durable artifact handler so the data-fetch boundary can advance
+#: the bounded progress phases without touching any renderer.
+#: Context-scoped: concurrent executions never observe each other's
+#: callbacks; execution context is never read from process-global
+#: mutable state.
+_artifact_progress_cb: ContextVar = ContextVar(
+    "artifact_progress_cb", default=None)
+
+
+def _notify_artifact_progress(phase: str) -> None:
+    callback = _artifact_progress_cb.get()
+    if callback is None:
+        return
+    try:
+        callback(phase)
+    except Exception as exc:  # noqa: BLE001 - progress is best-effort
+        logger.warning(
+            "artifact progress callback failed (best-effort): "
+            "exception=%s", exc.__class__.__name__)
+
+
 def fetch_artifact_data(artifact_type: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
     """Fetch and prepare data for the given artifact type."""
+    _notify_artifact_progress("fetching_data")
+    data = _fetch_artifact_data_impl(artifact_type, parameters)
+    _notify_artifact_progress("rendering")
+    return data
+
+
+def _fetch_artifact_data_impl(artifact_type: str,
+                              parameters: Dict[str, Any]) -> Dict[str, Any]:
     query = parameters.get("query", "")
     
     if artifact_type == "document_list":

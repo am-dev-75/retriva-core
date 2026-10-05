@@ -1375,6 +1375,22 @@ class PostgresJobsRepository:
             row = cur.fetchone()
             return _job_from_row(row) if row else None
 
+    def get_job_by_subject(self, *, tenant_id: str, job_type: str,
+                           subject_id: str) -> Optional[JobRecord]:
+        """Tenant-scoped lookup by durable subject (Spec 026: the
+        artifact API resolves ``artifact:<id>`` through the
+        server-generated subject id).  Parameterized; most recent
+        matching job wins; None when unknown to this tenant."""
+        tenant_id = validate_tenant_id(tenant_id)
+        with self._transaction(tenant_id) as cur:
+            cur.execute(
+                "SELECT * FROM jobs.jobs WHERE tenant_id = %s "
+                "AND job_type = %s AND subject_id = %s "
+                "ORDER BY created_at DESC LIMIT 1",
+                (tenant_id, job_type, subject_id))
+            row = cur.fetchone()
+            return _job_from_row(row) if row else None
+
     def is_cancel_requested(self, *, tenant_id: str, job_id: str) -> bool:
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:

@@ -158,6 +158,7 @@ def _register_tasks(app):
     app._retriva_tasks_registered = True
 
     from retriva.ingestion_api.durable_jobs import (
+        run_artifact_job,
         run_document_job,
         run_mediawiki_job,
     )
@@ -250,6 +251,50 @@ def _register_tasks(app):
                 user_metadata=user_metadata,
                 kb_id=kb_id,
                 collection_name=collection_name,
+            ),
+        )
+
+    @app.task(
+        name="retriva.ingestion_api.tasks.process_artifact_task",
+        bind=True,
+        max_retries=0,
+        acks_late=True,
+    )
+    def process_artifact_task(
+        self,
+        job_id: str,
+        attempt_id: str,
+        tenant_id: str,
+        dispatch_token: str,
+        celery_task_id: str,
+        artifact_id: str,
+        artifact_type: str,
+        format: str,
+        parameters: Optional[Dict[str, object]] = None,
+        user_metadata: Optional[Dict[str, object]] = None,
+        collection_context: Optional[str] = None,
+    ):
+        """Durable v2 artifact generation attempt (Spec 026).
+
+        Handler failures are NON-retryable (deterministic input;
+        provider cost never duplicated) — ``max_retries=0`` so Celery
+        never re-delivers after a failure; duplicate delivery of a
+        RUNNING attempt is classified by the durable claim protocol,
+        and redelivery of an already-claimed attempt is a no-op."""
+        return run_artifact_job(
+            self,
+            job_id=job_id,
+            attempt_id=attempt_id,
+            tenant_id=tenant_id,
+            dispatch_token=dispatch_token,
+            celery_task_id=celery_task_id,
+            payload=dict(
+                artifact_id=artifact_id,
+                artifact_type=artifact_type,
+                format=format,
+                parameters=parameters or {},
+                user_metadata=user_metadata,
+                collection_context=collection_context,
             ),
         )
 

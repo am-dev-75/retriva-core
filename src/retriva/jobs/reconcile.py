@@ -219,6 +219,20 @@ def reconcile(service, *, tenant_id: Optional[str],
             attempt_id = running[0].id if running else None
             if attempt_id is None:
                 continue
+            if not restart_safe:
+                # Artifact-specific evidence adapter (Spec 026 §17):
+                # a finalized artifact with PROVEN provenance
+                # (tenant/artifact/job/checksum/size) may be adopted
+                # from the finalized→crash window; any uncertainty
+                # stays on the conservative path (manual_review, no
+                # automatic provider-cost replay).
+                adopted = _adopt_from_finalization_evidence(
+                    service, job, running[0])
+                if adopted:
+                    log_action(job, "R7",
+                               "adopted_finalization_provenance")
+                    note(job, "R7", "adopted_finalization_provenance")
+                    continue
             repo.mark_execution_lost(
                 tenant_id=job.tenant_id, job_id=job.id,
                 attempt_id=attempt_id,
@@ -368,6 +382,22 @@ def _spec_for(service, job):
         return service.require_spec(job.job_type)
     except Exception:  # noqa: BLE001 - unknown type: conservative
         return None
+
+
+def _adopt_from_finalization_evidence(service, job, attempt) -> bool:
+    """Spec 026 §17: adopt a finalized artifact whose provenance
+    sidecar proves it belongs to this tenant/artifact/job and whose
+    checksum/size match.  Anything uncertain returns False (the
+    conservative manual_review path follows); provider work is never
+    replayed.  Lazy import: only the artifact workflow provides this
+    evidence adapter today."""
+    try:
+        from retriva.ingestion_api.artifact_store import (
+            adopt_finalized_artifact,
+        )
+        return adopt_finalized_artifact(service, job, attempt)
+    except Exception:  # noqa: BLE001 - evidence must be provable
+        return False
 
 
 def _new_identity() -> tuple:

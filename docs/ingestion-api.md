@@ -198,3 +198,62 @@ Occurs when `user_metadata` violates hard limits.
   ]
 }
 ```
+
+## Durable v2 Artifact Generation (Spec 026)
+
+The v2 artifact workflow (`/api/v2/artifacts`) runs on the durable
+Core jobs subsystem (Spec 025): **PostgreSQL is the sole
+authoritative logical job store**; the rendered file remains owned by
+the artifact storage provider and is referenced by bounded durable
+result metadata. Celery (or the BackgroundTasks fallback) is
+transport only — both use the identical durable lifecycle, and job
+state survives API restarts and Redis loss.
+
+**Job contract:** one registered job type `v2_artifact`
+(payload contract `v2-1`; subject `artifact:<artifact_id>`;
+`restart_safe=False` — `basic_report` may incur LLM provider cost,
+which is never replayed automatically). Each accepted `POST` creates
+a NEW artifact and a NEW durable job (no client idempotency key; a
+canonical input fingerprint is persisted for diagnostics). The
+collection/knowledge-base context is resolved server-side, persisted
+bounded in the durable input metadata, and re-validated at execution.
+
+**Client-visible behavior (compatibility preserved):**
+- `POST /api/v2/artifacts` → 202 `{status, message, job_id,
+  artifact_id}`; `job_id` is the durable Core job id.
+- `GET /api/v2/artifacts/{artifact_id}` → durable status projection
+  (`completed` / `pending` / `running` / `failed` / `cancelled`
+  family) with additive progress fields
+  (`current_stage` / `stages_completed` — phases:
+  `fetching_data` → `rendering` → `finalizing`).
+- `GET /api/v2/artifacts/{artifact_id}/content` → 200 with a
+  deterministic format media type while the artifact exists; 202
+  while non-terminal; 404 unknown/missing; 410 failed/cancelled
+  with a SANITIZED detail (raw exception text is never exposed).
+- `DELETE /api/v2/artifacts/{artifact_id}` → idempotent 204; records
+  durable cancellation intent (Celery revoke is a non-guaranteed aid
+  only) and removes the artifact file. A finalized artifact whose
+  render already completed may legitimately remain `succeeded`
+  (Spec 025 T15 — completion proven beats a racing cancel); the
+  deletion then only removes the file.
+- No list, no pagination, and **no public retry endpoint** — retries
+  are operator actions (`python -m retriva.jobs.retry`).
+
+**Finalization and recovery:** renderers write to a
+`<artifact_id><ext>.partial` file in the final directory; the worker
+flushes/closes, verifies cooperative cancellation, computes
+size + SHA-256, and atomically finalizes with `os.replace` — a
+partial render can never occupy the final name. A bounded
+provenance sidecar (tenant/artifact/job/format/checksum/size) is
+written at finalization so reconciliation can ADOPT a completed
+artifact when the process crashed between finalization and the
+success callback — ONLY with verified provenance; anything
+uncertain goes to bounded `manual_review` (operator resolution).
+Succeeded jobs whose file is missing emit a one-time bounded
+anomaly event and download as 404. Job-history retention NEVER
+deletes generated artifacts (an artifact may outlive its job
+record; deletion remains an artifact-API operation).
+
+Pre-deployment artifact jobs were in-memory only and are NOT
+migrated (they were already lost on restart; they remain
+unresolvable).
