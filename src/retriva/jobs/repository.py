@@ -25,7 +25,10 @@ duplicate callbacks never move state backward.
 
 from __future__ import annotations
 
+import functools
 import json
+import random
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -64,6 +67,9 @@ from retriva.jobs.errors import (
     OperatorRetryRefusedError,
     TenantContextMissingError,
 )
+from retriva.logger import get_logger
+
+_log = get_logger(__name__)
 
 #: Reserved bounded key carrying the submission's input identity for
 #: idempotency-conflict detection (Spec 025 §3.1).
@@ -226,6 +232,58 @@ def _retention_interval_sql(status_value: str) -> str:
     return f"make_interval(days => {int(days)})"
 
 
+#: Bounded retry for safely-retryable PostgreSQL concurrency failures
+#: (Spec 029 / ADR-034).  The canonical ``jobs -> job_attempts`` lock
+#: order is the fix; retry is defense in depth only.  Every repository
+#: method is one guarded, idempotent transaction with no external side
+#: effects, so whole-transaction replay is safe.
+TRANSIENT_RETRY_ATTEMPTS = 3
+_TRANSIENT_RETRY_BASE_SECONDS = 0.05
+_TRANSIENT_RETRY_JITTER_SECONDS = 0.05
+
+#: Low-cardinality counters (no identifiers, SQL, or content).
+_TRANSIENT_RETRY_METRICS: Dict[str, int] = {
+    "transient_retries": 0,
+    "retries_exhausted": 0,
+}
+
+
+def transient_retry_metrics() -> Dict[str, int]:
+    """Bounded transient-retry counters for observability
+    (Constitution §33, §41 — no SQL, ids, or content)."""
+    return dict(_TRANSIENT_RETRY_METRICS)
+
+
+def _retry_on_transient(method: Callable) -> Callable:
+    """Replay a repository transaction on a safely-retryable
+    PostgreSQL concurrency failure (deadlock ``40P01`` or
+    serialization ``40001``) with bounded, jittered backoff.  Typed
+    domain/validation/not-found errors are never retried."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        attempt = 0
+        while True:
+            try:
+                return method(self, *args, **kwargs)
+            except (psycopg2.errors.DeadlockDetected,
+                    psycopg2.errors.SerializationFailure):
+                attempt += 1
+                if attempt >= TRANSIENT_RETRY_ATTEMPTS:
+                    _TRANSIENT_RETRY_METRICS["retries_exhausted"] += 1
+                    _log.warning(
+                        "durable-jobs transient retry exhausted after "
+                        "%d attempt(s) in %s", attempt, method.__name__)
+                    raise
+                _TRANSIENT_RETRY_METRICS["transient_retries"] += 1
+                _log.info(
+                    "durable-jobs transient retry %d/%d in %s",
+                    attempt, TRANSIENT_RETRY_ATTEMPTS, method.__name__)
+                time.sleep(
+                    _TRANSIENT_RETRY_BASE_SECONDS * attempt
+                    + random.uniform(0.0, _TRANSIENT_RETRY_JITTER_SECONDS))
+    return wrapper
+
+
 class PostgresJobsRepository:
     """psycopg2 adapter for the durable job lifecycle.
 
@@ -270,6 +328,43 @@ class PostgresJobsRepository:
         finally:
             conn.close()
 
+    # -- canonical lock primitives (Spec 029 / ADR-034) -------------------
+
+    def _lock_job_row(self, cur, *, job_id: str,
+                      tenant_id: Optional[str] = None):
+        """Acquire the ``jobs.jobs`` row lock FIRST for any transaction
+        that touches both durable-job relations (Spec 029 / ADR-034).
+        Returns the locked row, or None when no such row is visible in
+        the current tenant context."""
+        if tenant_id is None:
+            cur.execute(
+                "SELECT * FROM jobs.jobs WHERE id = %s FOR UPDATE",
+                (job_id,))
+        else:
+            cur.execute(
+                "SELECT * FROM jobs.jobs WHERE id = %s AND tenant_id = %s "
+                "FOR UPDATE", (job_id, tenant_id))
+        return cur.fetchone()
+
+    def _lock_attempt_row(self, cur, *, attempt_id: str,
+                          tenant_id: Optional[str] = None,
+                          job_id: Optional[str] = None):
+        """Acquire the ``jobs.job_attempts`` row lock only AFTER the
+        job row lock (Spec 029 / ADR-034).  Returns the locked row or
+        None."""
+        clauses = ["id = %s"]
+        params: List[Any] = [attempt_id]
+        if job_id is not None:
+            clauses.append("job_id = %s")
+            params.append(job_id)
+        if tenant_id is not None:
+            clauses.append("tenant_id = %s")
+            params.append(tenant_id)
+        cur.execute(
+            "SELECT * FROM jobs.job_attempts WHERE "
+            + " AND ".join(clauses) + " FOR UPDATE", tuple(params))
+        return cur.fetchone()
+
     def _record_event(self, cur, *, job_id: str, tenant_id: str,
                       event_type: EventType, actor: EventActor,
                       from_status: Optional[JobStatus],
@@ -292,6 +387,7 @@ class PostgresJobsRepository:
 
     # -- submission (T1) ----------------------------------------------------
 
+    @_retry_on_transient
     def submit_job(
             self, *, tenant_id: str, job_id: str, job_type: str,
             payload_version: str, execution_transport: str,
@@ -386,6 +482,7 @@ class PostgresJobsRepository:
 
     # -- dispatch preparation (T3 / operator retry T21) ----------------------
 
+    @_retry_on_transient
     def prepare_dispatch(
             self, *, tenant_id: str, job_id: str,
             dispatch_token: str, celery_task_id: str,
@@ -430,6 +527,7 @@ class PostgresJobsRepository:
                         "preallocated_task_id": True})
             return _attempt_from_row(row)
 
+    @_retry_on_transient
     def prepare_retry_dispatch(
             self, *, tenant_id: str, job_id: str,
             dispatch_token: str, celery_task_id: str,
@@ -472,6 +570,7 @@ class PostgresJobsRepository:
                 detail={"attempt_no": attempt_no})
             return _attempt_from_row(row)
 
+    @_retry_on_transient
     def prepare_operator_retry(
             self, *, tenant_id: str, job_id: str,
             dispatch_token: str, celery_task_id: str,
@@ -525,6 +624,7 @@ class PostgresJobsRepository:
                             bool(override_max_attempts)})
             return _attempt_from_row(row)
 
+    @_retry_on_transient
     def resolve_manual_review(
             self, *, tenant_id: str, job_id: str, resolution: str,
             reason: str, actor_label: str,
@@ -606,6 +706,7 @@ class PostgresJobsRepository:
 
     # -- publication outcomes (T4/T5/T6) --------------------------------------
 
+    @_retry_on_transient
     def record_publication_inflight(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             republish: bool = False,
@@ -625,6 +726,7 @@ class PostgresJobsRepository:
                 (attempt_id, tenant_id))
             return cur.rowcount == 1
 
+    @_retry_on_transient
     def record_publication_confirmed(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             actor: EventActor = EventActor.SYSTEM,
@@ -634,6 +736,8 @@ class PostgresJobsRepository:
         attempt is ``published`` and the job is ``queued``."""
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:
+            # Spec 029 / ADR-034: lock the job row before the attempt.
+            self._lock_job_row(cur, job_id=job_id, tenant_id=tenant_id)
             cur.execute(
                 "UPDATE jobs.job_attempts SET publication_state = "
                 "'published', published_at = now(), updated_at = now() "
@@ -670,6 +774,7 @@ class PostgresJobsRepository:
                 detail={"evidence": evidence})
             return True
 
+    @_retry_on_transient
     def record_publication_rejected(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             error: SanitizedError,
@@ -681,6 +786,8 @@ class PostgresJobsRepository:
         ``cancelling`` (reconciliation resolves it)."""
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:
+            # Spec 029 / ADR-034: lock the job row before the attempt.
+            self._lock_job_row(cur, job_id=job_id, tenant_id=tenant_id)
             cur.execute(
                 "UPDATE jobs.job_attempts SET publication_state = "
                 "'rejected', status = 'dispatch_failed', "
@@ -708,6 +815,7 @@ class PostgresJobsRepository:
                 detail={"error_code": error.code})
             return True
 
+    @_retry_on_transient
     def record_publication_ambiguous(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             error: SanitizedError,
@@ -717,6 +825,8 @@ class PostgresJobsRepository:
         by evidence (R2)."""
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:
+            # Spec 029 / ADR-034: lock the job row before the attempt.
+            self._lock_job_row(cur, job_id=job_id, tenant_id=tenant_id)
             cur.execute(
                 "UPDATE jobs.job_attempts SET publication_state = "
                 "'unknown', error_code = %s, error_summary = %s, "
@@ -744,6 +854,7 @@ class PostgresJobsRepository:
 
     # -- worker claim (T10 + §3.5 protocol) -----------------------------------
 
+    @_retry_on_transient
     def claim_for_delivery(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             dispatch_token: str, celery_task_id: str, worker_id: str,
@@ -758,19 +869,14 @@ class PostgresJobsRepository:
         job row first, then attempt row (all paths follow it)."""
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:
-            cur.execute(
-                "SELECT * FROM jobs.jobs WHERE id = %s FOR UPDATE",
-                (job_id,))
-            job_row = cur.fetchone()
+            job_row = self._lock_job_row(cur, job_id=job_id)
             if job_row is None or job_row["tenant_id"] != tenant_id:
                 return ClaimDecision(
                     outcome=ClaimOutcome.STALE_DELIVERY,
                     detail={"reason": "job_not_found_or_tenant_mismatch"})
             job = _job_from_row(job_row)
-            cur.execute(
-                "SELECT * FROM jobs.job_attempts WHERE id = %s "
-                "AND job_id = %s FOR UPDATE", (attempt_id, job_id))
-            attempt_row = cur.fetchone()
+            attempt_row = self._lock_attempt_row(
+                cur, attempt_id=attempt_id, job_id=job_id)
             if attempt_row is None:
                 return ClaimDecision(
                     outcome=ClaimOutcome.STALE_DELIVERY,
@@ -999,6 +1105,7 @@ class PostgresJobsRepository:
 
     # -- execution progress / terminal transitions -----------------------------
 
+    @_retry_on_transient
     def record_progress(
             self, *, tenant_id: str, job_id: str,
             progress: Optional[int], stage: Optional[str],
@@ -1017,6 +1124,7 @@ class PostgresJobsRepository:
                 (progress, stage, message, job_id, tenant_id))
             return cur.rowcount == 1
 
+    @_retry_on_transient
     def complete_success(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             result_metadata: Optional[Dict[str, Any]] = None,
@@ -1027,8 +1135,12 @@ class PostgresJobsRepository:
         ``cancel_lost_race`` — the system must NOT report cancelled
         when side effects are known complete).  Idempotent."""
         tenant_id = validate_tenant_id(tenant_id)
-        was_cancelling = False
         with self._transaction(tenant_id) as cur:
+            # Spec 029 / ADR-034: lock the job row first, then read the
+            # cancellable state from the locked row before the attempt.
+            row = self._lock_job_row(
+                cur, job_id=job_id, tenant_id=tenant_id)
+            was_cancelling = bool(row and row["status"] == "cancelling")
             cur.execute(
                 "UPDATE jobs.job_attempts SET status = 'succeeded', "
                 "finished_at = now(), updated_at = now() "
@@ -1036,11 +1148,6 @@ class PostgresJobsRepository:
                 (attempt_id, tenant_id))
             if cur.rowcount != 1:
                 return False
-            cur.execute(
-                "SELECT status FROM jobs.jobs WHERE id = %s "
-                "FOR UPDATE", (job_id,))
-            row = cur.fetchone()
-            was_cancelling = bool(row and row["status"] == "cancelling")
             cur.execute(
                 "UPDATE jobs.jobs SET status = 'succeeded', "
                 "finished_at = now(), result_metadata = %s, "
@@ -1066,6 +1173,7 @@ class PostgresJobsRepository:
                     attempt_id=attempt_id, detail=event_detail)
             return applied
 
+    @_retry_on_transient
     def complete_failure(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             error: SanitizedError, retryable: bool,
@@ -1079,6 +1187,8 @@ class PostgresJobsRepository:
         (duplicate callback)."""
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:
+            # Spec 029 / ADR-034: lock the job row before the attempt.
+            self._lock_job_row(cur, job_id=job_id, tenant_id=tenant_id)
             cur.execute(
                 "SELECT * FROM jobs.job_attempts WHERE id = %s FOR UPDATE",
                 (attempt_id,))
@@ -1154,6 +1264,7 @@ class PostgresJobsRepository:
                 scheduled_at=scheduled if will_retry else None,
                 attempt=attempt)
 
+    @_retry_on_transient
     def acknowledge_cooperative_cancel(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             detail: Optional[Dict[str, Any]] = None,
@@ -1163,6 +1274,8 @@ class PostgresJobsRepository:
         cancelled with never-executed-further evidence."""
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:
+            # Spec 029 / ADR-034: lock the job row before the attempt.
+            self._lock_job_row(cur, job_id=job_id, tenant_id=tenant_id)
             cur.execute(
                 "UPDATE jobs.job_attempts SET status = 'cancelled', "
                 "finished_at = now(), updated_at = now() "
@@ -1191,6 +1304,7 @@ class PostgresJobsRepository:
                             **(detail or {})})
             return applied
 
+    @_retry_on_transient
     def mark_execution_lost(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             reason: str, to_manual_review: bool = False,
@@ -1203,6 +1317,8 @@ class PostgresJobsRepository:
         attempt is ``lost`` and the job stays for evidence."""
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:
+            # Spec 029 / ADR-034: lock the job row before the attempt.
+            self._lock_job_row(cur, job_id=job_id, tenant_id=tenant_id)
             cur.execute(
                 "UPDATE jobs.job_attempts SET status = 'lost', "
                 "finished_at = now(), updated_at = now() "
@@ -1236,6 +1352,7 @@ class PostgresJobsRepository:
 
     # -- cancellation (T2/T11/T12/T13) ----------------------------------------
 
+    @_retry_on_transient
     def request_cancel(self, *, tenant_id: str, job_id: str,
                        actor: EventActor = EventActor.API,
                        revoke_requested: bool = False,
@@ -1316,6 +1433,7 @@ class PostgresJobsRepository:
                 outcome=CancellationOutcome.REQUESTED,
                 job=_job_from_row(cur.fetchone()))
 
+    @_retry_on_transient
     def cancel_unclaimed_attempt(
             self, *, tenant_id: str, job_id: str, attempt_id: str,
             evidence: str = "never_executed",
@@ -1325,6 +1443,8 @@ class PostgresJobsRepository:
         evidence)."""
         tenant_id = validate_tenant_id(tenant_id)
         with self._transaction(tenant_id) as cur:
+            # Spec 029 / ADR-034: lock the job row before the attempt.
+            self._lock_job_row(cur, job_id=job_id, tenant_id=tenant_id)
             cur.execute(
                 "UPDATE jobs.job_attempts SET status = 'cancelled', "
                 "finished_at = now(), updated_at = now() "
@@ -1641,6 +1761,7 @@ class PostgresJobsRepository:
             int(row["count"] if isinstance(row, dict) else row[1])
             for row in rows}
 
+    @_retry_on_transient
     def adopt_divergence_outcome(
             self, *, tenant_id: str, job_id: str, resolution: str,
             reason: str,
@@ -1697,6 +1818,7 @@ class PostgresJobsRepository:
 
     # -- privileged retention purge (cleanup; migrator connection) --------------
 
+    @_retry_on_transient
     def purge_expired_jobs(self, *, batch: int,
                            now: Optional[datetime] = None) -> int:
         """Delete jobs whose ``purge_after`` has passed (attempts and

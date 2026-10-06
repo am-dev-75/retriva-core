@@ -328,6 +328,31 @@ specifications:
       day — closure audit SUCCESS, commit deferred to a separate
       owner instruction
 
+  - number: "029"
+    title: Durable-jobs canonical lock ordering
+    repository: retriva-core
+    path: specs/029-durable-jobs-lock-order
+    status: accepted
+    allocated: "2026-10-06"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; corrects the pre-existing durable-jobs lock-order
+      defect observed during Spec 028 validation and classified in the
+      post-deployment stabilization review (inverse cycle: claim path
+      jobs->job_attempts vs eight completion/publication/cancellation
+      paths job_attempts->jobs, producing SQLSTATE 40P01 deadlocks);
+      defines the canonical invariant (acquire jobs before
+      job_attempts), shared internal lock primitives, bounded
+      idempotent retry as defense in depth, and a deterministic
+      real-PostgreSQL concurrency gate; pristine-baseline reproduced at
+      commit d19edc3; does NOT reopen Spec 028 / ADR-033; owner
+      acceptance is REQUIRED before implementation (Constitution §42,
+      §43); revision 1 presented 2026-10-06 and explicitly ACCEPTED by
+      the owner on 2026-10-06 (acceptance event recorded in the spec
+      and ADR status sections); implemented under isolated
+      validation with exactly one local Core commit; live deployment
+      deferred to a separate governed phase
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -671,4 +696,26 @@ adrs:
       fallback switch, hybrid adoption with provenance classes and
       gated live sequence); explicitly accepted for implementation by
       the owner on 2026-10-05 (acceptance event recorded in the ADR
+      status section)
+
+  - number: "034"
+    title: Canonical durable-jobs lock ordering (jobs before job_attempts)
+    repository: retriva-core
+    path: docs/adr/adr-034-durable-jobs-lock-order.md
+    status: accepted
+    allocated: "2026-10-06"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; records the significant persistence decision to
+      normalize all durable-jobs two-relation transactions to acquire
+      the jobs.jobs row lock before the jobs.job_attempts row lock,
+      with shared internal lock primitives and bounded idempotent
+      retry (deadlock/serialization only) as defense in depth;
+      corrects the pre-existing inverse lock cycle observed in the
+      live cust_0007 stack during Spec 028 validation and reproduced
+      deterministically on the pristine baseline (commit d19edc3);
+      no schema/migration change; does NOT alter Spec 028 knowledge
+      authority semantics; owner acceptance is REQUIRED before
+      implementation (Constitution §42, §43); explicitly ACCEPTED by
+      the owner on 2026-10-06 (acceptance event recorded in the ADR
       status section)
