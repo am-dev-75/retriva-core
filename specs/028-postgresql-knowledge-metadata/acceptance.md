@@ -360,3 +360,56 @@ refusal events.  The centralized durable-authority guard remains as
 defense in depth for unexpected callers.  Regression coverage added in
 `tests/test_legacy_catalog_guard.py` (33 tests) including a call-site
 boundary check.
+
+## Final corrective runtime validation (2026-10-06, harness retry)
+
+Isolated end-to-end runtime validation of the corrected candidate against a
+valid PostgreSQL-authoritative baseline.  The live `cust_0007` stack was not
+touched (no deploy, no state change, no volume/secret mount); a bounded
+read-only comparison before and after confirmed an unchanged live image,
+`suspended` authority, `native_ingestion_available=false`, frozen catalog
+`25db965f…`, `registry.db` `6ae01791…`, and Qdrant `cust_0007` at 5 points.
+
+Deployment candidate: `568b38bf7d59bb8a9fbf9df5df6bc5dbe70ce221`
+(parent `5402a7eab74360b90c02be20a9ede8534e7f6f79`), immutable image
+`sha256:785e3ad66e222295dedd61d9d57bd352dfb9b5256a355cd4f04eb2f1736c1578`.
+
+In-scope defect found and fixed by the corrected harness: the Reconciler
+compared the manifest's dashless 32-hex `point_id` against Qdrant's
+canonical dashed UUID and fabricated `missing_points`/`orphan_points` for
+every native post-cutover version.  Fixed by canonicalizing both sides
+(`retriva.knowledge.reconcile.canonical_point_id`) with a focused regression
+test.  This is the single follow-up source commit; no other source change
+was made.
+
+Results on the candidate (fresh isolated PostgreSQL/Qdrant/Redis/Tika/
+embeddings stub; synthetic fixtures only):
+- HTTP local-fallback matrix: 6/6 (generic, upload, MediaWiki, same-version
+  idempotent resubmission, changed-content replacement, representative
+  failure) — zero writer invocations, zero refusal events, catalog unchanged.
+- Real Celery matrix: 6/6 with durable issue/claim/attempt lifecycle.
+- Independent API, worker, and non-destructive Redis restart/reconnect: 3/3.
+- Lifecycle/deletion: document delete (native async tombstone), repeated
+  delete, metadata-filter delete, KB cascade delete, force replacement — all
+  passing; metadata-only-update via duplicate upload is not reachable through
+  a supported API (durable input idempotency; pre-existing).
+- Defense-in-depth probes: 7/7 ordinary-context writers refused, catalog
+  byte-for-byte unchanged, low-cardinality labels, no temporary files.
+- Suspended and reconciliation_required: ingestion unavailable, fail-closed,
+  no fallback, catalog unchanged.
+- PostgreSQL/Qdrant consistency: clean (no missing/orphan/drift, no duplicate
+  ids, tenant isolation intact) on the native-only baseline.
+- Final reconciliation dry-run: only expected superseded points; zero
+  correction-induced findings.
+- Stability ledger: 33 rows, 21 passed, 0 failed, 12 not-applicable,
+  zero `legacy_catalog_write_refused` events across API/worker logs.
+
+Known, pre-existing, out-of-scope limitations (not introduced by the
+correction): the deferred durable-jobs `jobs`→`job_attempts` lock-order
+defect (owner-accepted, deferred) was observed intermittently in additional
+harness repetitions, and two `tests/test_knowledge_lifecycle_sim.py`
+retrieval tests fail in this environment due to authority-cache/tenant
+ordering — both proven present on the clean candidate export.
+
+Disposition: the correction is validated on the candidate image; live resume
+from `suspended` remains a separately authorized deployment step.
