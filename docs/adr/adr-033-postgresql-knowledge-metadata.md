@@ -270,3 +270,16 @@ core.knowledge=1, pro.crm=9, messaging=0001_initial.  Pro role denied
 on `knowledge`; Core has no Messaging privileges.  Core upload/
 document/MediaWiki all completed and indexed.  Durable-jobs lock-order
 defect remains deferred (B by owner decision).
+
+## Corrective action (2026-10-06)
+
+Post-cutover live validation observed that ordinary runtime ingestion
+still wrote the legacy `dedup_catalog.json` after authority cutover.
+Correction: a centralized durable-authority guard
+(`retriva.knowledge.legacy_guard`) refuses ordinary runtime legacy
+catalog writes (and disallows catalog-as-authority reads) in the
+`authoritative`, `suspended`, and `reconciliation_required` states,
+while preserving bounded privileged read-only adoption/inspection
+paths.  The decision is derived from durable PostgreSQL authority
+state, is invalidated on every transition, and fails closed.  The
+dedup catalog is no longer a post-cutover runtime write target.

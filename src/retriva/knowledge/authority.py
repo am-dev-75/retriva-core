@@ -201,6 +201,15 @@ class KnowledgeAuthority:
         _log.info(
             "knowledge authority transition: %s -> %s by operator",
             current.value, target.value)
+        # Invalidate the legacy-catalog guard cache so the new authority
+        # state takes effect immediately for catalog reads/writes.
+        try:
+            from retriva.knowledge.legacy_guard import (
+                invalidate_authority_state_cache,
+            )
+            invalidate_authority_state_cache()
+        except Exception:
+            pass
         return updated or {}
 
     # -- cutover gates ---------------------------------------------------

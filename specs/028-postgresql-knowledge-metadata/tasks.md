@@ -284,3 +284,10 @@ Supersedes the PARTIAL status above for the items now completed.
 - Still unresolved: deterministic real-Qdrant retrieval-equivalence
   corpus; Pro runtime composition; Messaging runtime compatibility;
   full combined composition.  Live adoption/cutover pending.
+
+## Corrective task — legacy catalog write refusal (2026-10-06)
+
+DONE: inventory of all `dedup_catalog.json` access paths; centralized
+`legacy_guard`; `DeduplicationStore` write/read guarding; bounded
+refusal telemetry; 22 guard tests + corrected focused suite green.
+Live stack remains `suspended`; resume is a separate deployment step.

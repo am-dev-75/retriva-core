@@ -304,3 +304,33 @@ composition, Messaging runtime compatibility, combined composition.
 - Combined Core ingestion (Pro API + worker): upload, generic document,
   and MediaWiki all completed with `knowledge.ingestions` indexed;
   authority `authoritative`.
+
+## Corrective action — legacy catalog write refusal (2026-10-06)
+
+Live post-cutover validation found ordinary runtime ingestion still
+wrote the legacy `dedup_catalog.json` after authority cutover (catalog
+size 6903→8302; sha `535d4103…`→`25db965f…`), violating Spec 028 §18
+(dual-write stop / JSON write refusal).  The live stack was moved to
+`suspended` and the catalog re-frozen.
+
+Correction implemented:
+- `src/retriva/knowledge/legacy_guard.py` — centralized durable-authority
+  guard deriving state from PostgreSQL (cached ≤5s, invalidated on every
+  authority transition, fail-closed when the schema is present but the
+  state is undeterminable; legacy compatibility when the schema is
+  absent).
+- `DeduplicationStore` now consults the guard at its single write
+  boundary (`_write_raw`) and at each writer/reader: in `authoritative`,
+  `suspended`, and `reconciliation_required` states ordinary runtime
+  writes are refused without touching the filesystem and reads are not
+  used as identity authority; privileged contexts are read-only and not
+  client-selectable.
+- Bounded refusal evidence (`legacy_catalog_write_refused`, low-cardinality
+  counters) with no path/content/tenant logging.
+
+Governed tests: `tests/test_legacy_catalog_guard.py` (22) prove
+byte-for-byte/size/mode/mtime stability, missing/read-only/missing-dir
+variants, restart, privileged read-only, adoption read, and fail-closed.
+Corrected focused suite green (217 passed; 7 `test_deduplication`
+baseline environmental failures unchanged).  Live resume remains a
+separate deployment step; durable-jobs defect remains deferred.

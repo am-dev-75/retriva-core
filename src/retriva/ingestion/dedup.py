@@ -69,24 +69,78 @@ class DeduplicationStore:
 
     Lookup is O(n) on record count; this is acceptable for catalogs of
     tens-of-thousands of documents. Replace with SQLite if needed later.
+
+    Spec 028 correction: all writes consult the centralized durable
+    PostgreSQL authority guard.  Once PostgreSQL knowledge metadata is
+    authoritative (or suspended / reconciliation-required) ordinary
+    runtime writes are refused at this boundary and never touch the
+    filesystem; reads are not used as identity authority after cutover.
     """
 
     _lock = threading.Lock()
 
-    def __init__(self, catalog_path: Optional[str] = None, collection_name: Optional[str] = None):
+    def __init__(self, catalog_path: Optional[str] = None,
+                 collection_name: Optional[str] = None,
+                 operation: str = "runtime_ingestion"):
+        from retriva.knowledge.legacy_guard import (
+            LegacyCatalogOperation, legacy_catalog_write_allowed,
+        )
+
+        self._operation = LegacyCatalogOperation(operation) \
+            if not isinstance(operation, LegacyCatalogOperation) \
+            else operation
+        self.last_write_refused = False
+        self.last_read_refused = False
+
         if catalog_path is None:
             from retriva.config import settings
             from retriva.indexing.qdrant_store import get_collection_name
-            
+
             col = collection_name or get_collection_name()
             storage_dir = getattr(settings, "storage_path", None) or "storage"
             catalog_path = os.path.join(storage_dir, "collections", col, "dedup_catalog.json")
 
         self._path = Path(catalog_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
 
-        if not self._path.exists():
-            self._write_raw({"records": []})
+        # Never create directories or the file when writes are refused.
+        if legacy_catalog_write_allowed(self._operation):
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            if not self._path.exists():
+                self._write_raw({"records": []})
+
+    # -- Authority guard ----------------------------------------------------
+
+    def _op(self):
+        """Operation context, defaulting to ordinary runtime ingestion when
+        the instance was constructed through a custom/patched __init__."""
+        from retriva.knowledge.legacy_guard import LegacyCatalogOperation
+        return getattr(self, "_operation",
+                       LegacyCatalogOperation.RUNTIME_INGESTION)
+
+    def _writes_allowed(self) -> bool:
+        from retriva.knowledge.legacy_guard import (
+            legacy_catalog_write_allowed,
+        )
+        return legacy_catalog_write_allowed(self._op())
+
+    def _reads_allowed(self) -> bool:
+        from retriva.knowledge.legacy_guard import (
+            legacy_catalog_read_allowed,
+        )
+        return legacy_catalog_read_allowed(self._op())
+
+    def _guard_write(self) -> bool:
+        """Return True if a write may proceed; otherwise record a bounded
+        refusal and return False without touching the filesystem."""
+        if self._writes_allowed():
+            return True
+        from retriva.knowledge.legacy_guard import note_refusal
+
+        self.last_write_refused = True
+        _op = self._op()
+        note_refusal(_op.value if hasattr(_op, "value") else str(_op))
+        logger.debug("legacy_catalog_write_refused")
+        return False
 
     # -- Internal I/O -------------------------------------------------------
 
@@ -97,17 +151,24 @@ class DeduplicationStore:
         except (json.JSONDecodeError, OSError):
             return {"records": []}
 
-    def _write_raw(self, data: Dict[str, Any]) -> None:
+    def _write_raw(self, data: Dict[str, Any]) -> bool:
+        # Defense in depth: refusal is enforced at the single write boundary.
+        if not self._guard_write():
+            return False
         # Write to a .tmp file then rename for atomicity
         tmp = self._path.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         os.replace(tmp, self._path)
+        return True
 
     # -- Public API ---------------------------------------------------------
 
     def get_by_hash(self, kb_id: str, content_hash: str, collection_name: Optional[str] = None) -> Optional[DocRecord]:
         """Look up a document by (kb_id, content_hash, collection_name). Returns None if not found."""
+        if not self._reads_allowed():
+            self.last_read_refused = True
+            return None
         from retriva.indexing.qdrant_store import get_collection_name
         col = collection_name or get_collection_name()
         with self._lock:
@@ -122,6 +183,9 @@ class DeduplicationStore:
 
     def get_by_doc_id(self, doc_id: str) -> Optional[DocRecord]:
         """Look up a document by its deterministic doc_id."""
+        if not self._reads_allowed():
+            self.last_read_refused = True
+            return None
         with self._lock:
             data = self._read_raw()
             for rec in data.get("records", []):
@@ -131,6 +195,8 @@ class DeduplicationStore:
 
     def create_record(self, record: DocRecord) -> None:
         """Persist a new DocRecord. Raises ValueError if a duplicate key exists."""
+        if not self._guard_write():
+            return
         with self._lock:
             data = self._read_raw()
             for rec in data.get("records", []):
@@ -160,6 +226,11 @@ class DeduplicationStore:
     ) -> DocRecord:
         """Update metadata, source_paths (and optionally chunk_count/status) for a record."""
         now = datetime.now(timezone.utc).isoformat()
+        if not self._guard_write():
+            for rec in self._read_raw().get("records", []):
+                if rec.get("doc_id") == doc_id:
+                    return DocRecord(**rec)
+            raise KeyError(f"DocRecord not found for doc_id={doc_id}")
         with self._lock:
             data = self._read_raw()
             for rec in data["records"]:
@@ -178,6 +249,8 @@ class DeduplicationStore:
 
     def finalize_record(self, doc_id: str, chunk_count: int) -> None:
         """Mark a record as completed after indexing."""
+        if not self._guard_write():
+            return
         with self._lock:
             data = self._read_raw()
             for rec in data["records"]:
@@ -197,6 +270,8 @@ class DeduplicationStore:
         content_hash, collection) key does not block a later retry by being
         mistaken for an already-ingested document.
         """
+        if not self._guard_write():
+            return False
         with self._lock:
             data = self._read_raw()
             records = data.get("records", [])
@@ -220,6 +295,8 @@ class DeduplicationStore:
         Qdrant points have been deleted, so the dedup catalog never points
         at non-existent points.
         """
+        if not self._guard_write():
+            return 0
         with self._lock:
             data = self._read_raw()
             records = data.get("records", [])
@@ -234,6 +311,8 @@ class DeduplicationStore:
 
     def clear_all(self) -> None:
         """Reset catalog — for testing only."""
+        if not self._guard_write():
+            return
         with self._lock:
             self._write_raw({"records": []})
 
