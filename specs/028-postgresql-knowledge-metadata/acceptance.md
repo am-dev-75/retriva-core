@@ -334,3 +334,15 @@ variants, restart, privileged read-only, adoption read, and fail-closed.
 Corrected focused suite green (217 passed; 7 `test_deduplication`
 baseline environmental failures unchanged).  Live resume remains a
 separate deployment step; durable-jobs defect remains deferred.
+
+## Cache-safety correction (2026-10-06, follow-up)
+
+A stale permissive cache could previously authorize a catalog write for
+up to the TTL in an independent process after another process
+transitioned authority.  Corrected: the guard now caches ONLY denied
+states (forbidden states and fail-closed unknown); a permissive
+(pre-cutover) state is never cached, so every allowed ordinary write
+re-confirms the current durable PostgreSQL authority state.  Proven by
+a real two-process test (process B observed allowed, process A
+transitioned to `suspended`, B's write refused, catalog byte-for-byte
+unchanged) and by focused regression tests (25 guard tests).

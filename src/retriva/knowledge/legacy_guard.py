@@ -156,16 +156,30 @@ def _probe_authority_state() -> Optional[str]:
 
 
 def authority_state() -> Optional[str]:
-    """Cached durable authority state (short TTL, explicitly invalidated on
-    transitions)."""
+    """Durable authority state with a cache that may only ever make the
+    guard MORE restrictive.
+
+    Only DENIED states (forbidden states and the fail-closed ``None``) are
+    cached, for at most the TTL.  A PERMISSIVE (pre-cutover) state is NEVER
+    cached: every allowed write therefore re-confirms the current durable
+    PostgreSQL authority state directly, so an independent process cannot
+    authorize a catalog write from a stale permissive cache after another
+    process transitions authority (cross-process safety does not depend on
+    process-local invalidation)."""
     now = time.monotonic()
     with _cache_lock:
         hit = _cache.get("state")
         if hit and now - hit[0] < _CACHE_TTL_SECONDS:
-            return hit[1]
+            cached = hit[1]
+            if cached is None or cached in WRITE_FORBIDDEN_STATES:
+                return cached
+            # A cached permissive state must never be trusted.
     state = _probe_authority_state()
     with _cache_lock:
-        _cache["state"] = (now, state)
+        if state is None or state in WRITE_FORBIDDEN_STATES:
+            _cache["state"] = (now, state)
+        else:
+            _cache.pop("state", None)  # never cache a permissive state
     return state
 
 

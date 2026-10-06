@@ -38,14 +38,15 @@ FORBIDDEN_STATES = ("authoritative", "suspended",
                     "reconciliation_required")
 
 
-def _set_state(knowledge_repo, state):
+def _set_state(knowledge_repo, state, *, invalidate=True):
     authoritative = state == "authoritative"
     with knowledge_repo.transaction(privileged=True) as cur:
         cur.execute(
             "UPDATE knowledge.authority SET state=%s, authoritative=%s, "
             "native_ingestion_available=%s WHERE singleton=TRUE",
             (state, authoritative, authoritative))
-    invalidate_authority_state_cache()
+    if invalidate:
+        invalidate_authority_state_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -229,3 +230,49 @@ def test_fail_closed_when_state_undeterminable(knowledge_repo, tmp_path,
     assert _fingerprint(path) == before
     assert store.get_by_doc_id("x") is None
     lg.invalidate_authority_state_cache()
+
+
+# -- Cross-process stale-permissive-cache safety (Spec 028 correction) ------
+
+def test_permissive_state_is_never_cached(knowledge_repo, tmp_path):
+    import retriva.knowledge.legacy_guard as lg
+    _set_state(knowledge_repo, "schema_ready")
+    path = _catalog(tmp_path, records=[])
+    DeduplicationStore(catalog_path=path)._writes_allowed()
+    assert "state" not in lg._cache  # permissive decisions are not cached
+
+
+def test_allowed_write_reconfirms_durable_state_cross_process(
+        knowledge_repo, tmp_path):
+    """Simulate another process transitioning authority WITHOUT touching
+    this process's cache; an allowed write must re-confirm durably and be
+    refused (no stale permissive authorization)."""
+    _set_state(knowledge_repo, "schema_ready")
+    path = _catalog(tmp_path, records=[_record(0).model_dump()])
+    store = DeduplicationStore(catalog_path=path)
+    # Pre-cutover: allowed.
+    store.create_record(_record(1))
+    assert store.last_write_refused is False
+    before = _fingerprint(path)
+    # Another process cuts over; NO cache invalidation in this process.
+    _set_state(knowledge_repo, "authoritative", invalidate=False)
+    # Ordinary write must now be refused despite the earlier permissive
+    # decision having been observed in this process.
+    store.create_record(_record(2))
+    store.finalize_record("doc_" + "0" * 32, 9)
+    assert store.last_write_refused is True
+    assert _fingerprint(path) == before
+    assert store.get_by_hash("default", "sha256:" + "0" * 64) is None
+
+
+def test_denied_state_may_be_cached_and_is_fail_closed(knowledge_repo,
+                                                       tmp_path):
+    import retriva.knowledge.legacy_guard as lg
+    _set_state(knowledge_repo, "authoritative")
+    path = _catalog(tmp_path, records=[])
+    store = DeduplicationStore(catalog_path=path)
+    store._writes_allowed()
+    assert lg._cache.get("state", (0, None))[1] == "authoritative"
+    before = _fingerprint(path)
+    store.create_record(_record(3))
+    assert _fingerprint(path) == before

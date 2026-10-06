@@ -283,3 +283,8 @@ while preserving bounded privileged read-only adoption/inspection
 paths.  The decision is derived from durable PostgreSQL authority
 state, is invalidated on every transition, and fails closed.  The
 dedup catalog is no longer a post-cutover runtime write target.
+
+Cache-safety follow-up (2026-10-06): the legacy-catalog guard caches only
+denied authority states; permissive states are never cached, so allowed
+writes always re-confirm durable PostgreSQL state and independent
+processes cannot authorize a write from a stale permissive cache.
