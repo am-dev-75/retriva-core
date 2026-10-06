@@ -61,12 +61,16 @@ from retriva.logger import get_logger
 _log = get_logger(__name__)
 
 #: Core-owned migration streams registered by THIS CLI next to
-#: ``core.platform`` (Core→Core import only; Spec 025).  The existing
-#: core one-shot therefore applies ``core.jobs`` without any Compose
-#: change and without any extension provider listed.  Extension
-#: providers (``RETRIVA_PG_MIGRATION_PROVIDERS`` / ``--providers``)
-#: remain deployment-listed and may never own ``core.*`` streams.
-CORE_STREAM_PROVIDER_MODULES = ("retriva.jobs.migrations",)
+#: ``core.platform`` (Core→Core import only; Spec 025, Spec 028).  The
+#: existing core one-shot therefore applies ``core.jobs`` and
+#: ``core.knowledge`` without any Compose change and without any
+#: extension provider listed.  Extension providers
+#: (``RETRIVA_PG_MIGRATION_PROVIDERS`` / ``--providers``) remain
+#: deployment-listed and may never own ``core.*`` streams.
+CORE_STREAM_PROVIDER_MODULES = (
+    "retriva.jobs.migrations",
+    "retriva.knowledge.migrations",
+)
 
 
 def _cli_summary(data) -> str:

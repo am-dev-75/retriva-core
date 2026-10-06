@@ -113,6 +113,27 @@ paths:
                   artifact_types:
                     type: array
                     items: { type: string }
+                  knowledge_metadata:
+                    type: object
+                    description: >-
+                      Spec 028 additive public knowledge-metadata readiness
+                      object.  Bounded: no counts, conflicts, tenant ids,
+                      source references, or adoption reports.
+                    required: [state, authoritative, native_ingestion_available]
+                    properties:
+                      state:
+                        type: string
+                        enum:
+                          - schema_ready
+                          - adoption_pending
+                          - adoption_verified
+                          - authoritative
+                          - suspended
+                          - reconciliation_required
+                      authoritative:
+                        type: boolean
+                      native_ingestion_available:
+                        type: boolean
 
   /api/v2/documents:
     get:
@@ -5174,6 +5195,20 @@ components:
         deduplicated: { type: boolean, default: false }
         chunks_reused: { type: boolean, default: false }
         metadata_updated: { type: boolean, default: false }
+        document_id:
+          type: string
+          description: >-
+            Spec 028 additive optional authoritative knowledge document id.
+            Present only when PostgreSQL knowledge metadata is authoritative.
+        version_id:
+          type: string
+          description: Spec 028 additive optional document version id.
+        ingestion_id:
+          type: string
+          description: Spec 028 additive optional knowledge ingestion evidence id.
+        sync_state:
+          type: string
+          description: Spec 028 additive optional knowledge-domain sync state.
 
     DocumentIngestRequestV2:
       type: object

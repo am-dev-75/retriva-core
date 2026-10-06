@@ -359,3 +359,72 @@ def durable_service(durable_jobs_database):
         yield service
     finally:
         dj.reset_jobs_service()
+
+
+# ---------------------------------------------------------------------------
+# Knowledge metadata integration (Spec 028): a scratch database with
+# core.platform + core.jobs + core.knowledge applied.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def knowledge_database(pg_platform_stack):
+    """Scratch database with core.platform, core.jobs, and
+    core.knowledge streams applied."""
+    from retriva.infrastructure.postgres.migrations import (
+        CORE_PLATFORM_STREAM,
+        ProviderRegistry,
+        platform_provider,
+        upgrade as framework_upgrade,
+    )
+    from retriva.jobs.migrations import jobs_provider
+    from retriva.knowledge.migrations import (
+        KNOWLEDGE_STREAM_ID,
+        knowledge_provider,
+    )
+
+    settings = pg_platform_stack.fresh_database(
+        "retriva_pg_test_knowledge_shared")
+    registry = ProviderRegistry()
+    registry.register_core_platform(platform_provider())
+    registry.register_core_stream(jobs_provider())
+    registry.register_core_stream(knowledge_provider())
+    result = framework_upgrade(registry, settings)
+    assert [a["version"]
+            for a in result[CORE_PLATFORM_STREAM][0]["applied"]] == [1]
+    assert [a["version"] for a in result["core.jobs"][0]["applied"]] == [1]
+    assert [a["version"]
+            for a in result[KNOWLEDGE_STREAM_ID][0]["applied"]] == [1]
+    return settings
+
+
+@pytest.fixture()
+def knowledge_repo(knowledge_database):
+    from retriva.knowledge.repository import KnowledgeRepository
+
+    return KnowledgeRepository(knowledge_database)
+
+
+@pytest.fixture()
+def equivalence_evidence(knowledge_repo):
+    """Durable visible-point scan evidence (Spec 028 §7-§10): a verified
+    adopt_verify operation whose bounded summary records a complete scan
+    with zero incomplete visible points and zero conflicts.  Returns its
+    op id."""
+    import json
+    import time
+
+    repo = knowledge_repo
+    tenant = "spec028-equivalence"
+    collection = "retriva_chunks"
+    summary = json.dumps({
+        "kind": "visible_point_scan", "collection": collection,
+        "tenant_id": tenant, "complete": True, "incomplete": 0,
+        "conflicts": 0, "inspected": 0, "visible": 0,
+        "completed_at": time.time(),
+    })
+    with repo.transaction(tenant, privileged=True) as cur:
+        op_id = repo.record_operation(
+            cur, tenant_id=tenant, op_type="adopt_verify",
+            collection_name=collection, expected_count=0,
+            target_summary=summary, op_state="verified")
+    return op_id

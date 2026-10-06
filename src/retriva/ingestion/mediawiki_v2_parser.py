@@ -116,6 +116,9 @@ def _process_page(
     vlm,
     cancel_check: Callable[[], bool],
     job_id: str,
+    tenant_id: Optional[str] = None,
+    knowledge=None,
+    collection_name: Optional[str] = None,
 ) -> _PageResult:
     """Process a single wiki page: dedup, VLM enrichment, chunk, index.
 
@@ -140,6 +143,23 @@ def _process_page(
     existing = dedup_store.get_by_hash(
         kb_id, page_hash, collection_name=get_collection_name()
     )
+
+    # Spec 028: resolve/create the MediaWiki page knowledge document
+    # (page identity) and its version (content fingerprint).  On a
+    # content duplicate the same version is reused.
+    kctx = None
+    if knowledge is not None and tenant_id:
+        try:
+            kctx = knowledge.begin_page(
+                tenant_id=tenant_id, xml_path=str(xml_path),
+                page_id=page_id, kb_id=kb_id,
+                collection_name=collection_name or get_collection_name(),
+                content_fingerprint=page_hash, title=page_title,
+                job_id=job_id)
+        except Exception as kerr:  # noqa: BLE001
+            logger.warning(
+                f"Job {job_id}: knowledge page registration failed "
+                f"({kerr.__class__.__name__})")
 
     if existing is not None:
         # Duplicate — merge metadata/paths
@@ -173,6 +193,11 @@ def _process_page(
                 f"Job {job_id}: Page '{page_title}' deduplicated "
                 f"(unchanged), doc_id={doc_id}"
             )
+        if kctx is not None:
+            try:
+                knowledge.activate_existing(kctx)
+            except Exception:
+                pass
         return _PageResult(is_new=False, is_dedup=True)
 
     # ── New page — create record, chunk, index ──────────────────────────
@@ -238,7 +263,34 @@ def _process_page(
     chunks = chunker.create_chunks(doc)
 
     client = get_client()
-    upsert_chunks(client, chunks, cancel_check=cancel_check)
+    visibility = None
+    if kctx is not None:
+        try:
+            knowledge.record_intent(
+                kctx, [c.metadata.chunk_id for c in chunks])
+            visibility = knowledge.visibility_fields(kctx, serving=False)
+        except Exception as kerr:  # noqa: BLE001
+            logger.warning(
+                f"Job {job_id}: knowledge manifest intent failed "
+                f"({kerr.__class__.__name__})")
+    if visibility is not None:
+        upsert_chunks(client, chunks, cancel_check=cancel_check,
+                      visibility_fields=visibility)
+    else:
+        upsert_chunks(client, chunks, cancel_check=cancel_check)
+
+    if kctx is not None:
+        try:
+            knowledge.mark_applied(kctx)
+            if not knowledge.complete(
+                    kctx, observed_chunk_count=len(chunks)):
+                logger.error(
+                    f"Job {job_id}: knowledge verification failed for "
+                    f"page '{page_title}'; replacement withheld")
+        except Exception as kerr:  # noqa: BLE001
+            logger.warning(
+                f"Job {job_id}: knowledge completion failed "
+                f"({kerr.__class__.__name__})")
 
     try:
         dedup_store.finalize_record(doc_id, chunk_count=len(chunks))
@@ -265,6 +317,8 @@ def process_mediawiki_export(
     job_id: str,
     namespaces: Optional[Set[int]] = None,
     recorder=None,
+    tenant_id: Optional[str] = None,
+    collection_name: Optional[str] = None,
 ) -> None:
     """Process a MediaWiki export directory with per-page granularity.
 
@@ -306,6 +360,17 @@ def process_mediawiki_export(
 
     staged_path = Path(staged_dir)
     dedup_store = DeduplicationStore()
+
+    # Spec 028: native knowledge ingestion gate.  When the knowledge
+    # schema is present but authority is not authoritative this raises,
+    # failing the job BEFORE any Qdrant mutation (fail-closed).
+    knowledge = None
+    if tenant_id:
+        from retriva.knowledge.pipeline import knowledge_pipeline
+        _kp = knowledge_pipeline()
+        if _kp.schema_present():
+            _kp.enabled()
+            knowledge = _kp
 
     try:
         # ── DETECTING ───────────────────────────────────────────────────────
@@ -383,6 +448,9 @@ def process_mediawiki_export(
                         vlm=vlm,
                         cancel_check=cancel_check,
                         job_id=job_id,
+                        tenant_id=tenant_id,
+                        knowledge=knowledge,
+                        collection_name=collection_name,
                     )
                     futures.append(future)
 

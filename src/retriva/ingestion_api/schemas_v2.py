@@ -159,6 +159,17 @@ class IngestResponseV2(BaseModel):
     deduplicated: bool = Field(False, description="True when the file was already known in this KB.")
     chunks_reused: bool = Field(False, description="True when existing chunks were reused (no re-indexing).")
     metadata_updated: bool = Field(False, description="True when metadata or source_paths were updated.")
+    # Spec 028 additive optional fields (present only when PostgreSQL
+    # knowledge metadata is authoritative).  No raw source references,
+    # storage paths, operation records, or uncertainty internals.
+    document_id: Optional[str] = Field(
+        None, description="Authoritative knowledge document id (additive).")
+    version_id: Optional[str] = Field(
+        None, description="Authoritative document version id (additive).")
+    ingestion_id: Optional[str] = Field(
+        None, description="Knowledge ingestion evidence id (additive).")
+    sync_state: Optional[str] = Field(
+        None, description="Knowledge-domain sync state (additive).")
 
 
 class JobResponseV2(BaseModel):

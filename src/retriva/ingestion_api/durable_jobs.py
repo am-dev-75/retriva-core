@@ -306,11 +306,20 @@ def document_handler(service: JobsService, tenant_id: str, job_id: str,
             local_payload.pop("collection_name", None)
             or DEFAULT_COLLECTION_NAME)
         token = set_collection_name(collection)
+        knowledge = None
+        try:
+            from retriva.knowledge.pipeline import knowledge_pipeline
+            _job_type = getattr(job, "job_type", "v2_document")
+            knowledge = knowledge_pipeline().context_for_job(
+                tenant_id, job_id, _job_type)
+        except Exception:
+            knowledge = None
         try:
             process_document_v2(
                 job_id=job_id,
                 recorder=recorder,
                 _cancel_check=cancel_check,
+                knowledge_context=knowledge,
                 **local_payload)
         except CancellationError:
             recorder.mark_cancelled(job_id)
@@ -352,6 +361,8 @@ def mediawiki_handler(service: JobsService, tenant_id: str, job_id: str,
                 cancel_check,
                 job_id,
                 recorder=recorder,
+                tenant_id=tenant_id,
+                collection_name=payload.get("collection_name"),
             )
         except CancellationError:
             recorder.mark_cancelled(job_id)
@@ -602,6 +613,48 @@ class SubmissionResult:
     job: JobRecord
     created: bool
     local_runner: Optional[Callable[[], Any]]
+    knowledge: Optional[Dict[str, Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# Spec 028 knowledge integration helpers
+# ---------------------------------------------------------------------------
+
+def _knowledge_pipeline_or_none():
+    """Return the knowledge pipeline when native ingestion is permitted;
+    None when the knowledge schema is absent (legacy path); raise the
+    fail-closed error when the schema exists but authority is not
+    authoritative."""
+    from retriva.knowledge.pipeline import knowledge_pipeline
+
+    pipeline = knowledge_pipeline()
+    if not pipeline.schema_present():
+        return None
+    pipeline.enabled()  # raises KnowledgeIngestionUnavailable if gated
+    return pipeline
+
+
+def _fingerprint_source(path: Optional[str]) -> Optional[str]:
+    """Best-effort sha256 fingerprint of a server-side source file.
+    Returns None when the bytes are not readable (documented reindex
+    limitation: version identity then cannot dedup)."""
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(block)
+        return f"sha256:{h.hexdigest()}"
+    except OSError:
+        return None
+
+
+def _knowledge_collection(collection_name: Optional[str]) -> str:
+    from retriva.indexing.qdrant_store import (
+        DEFAULT_COLLECTION_NAME,
+    )
+    return collection_name or DEFAULT_COLLECTION_NAME
 
 
 def resolve_request_tenant(request) -> str:
@@ -638,7 +691,18 @@ def submit_document_job(*, tenant_id: str, source_uri: str,
         input_metadata=input_metadata,
         idempotency_key=idempotency_key,
         payload_version=_default_payload_version())
-    return _dispatch_submitted(service, job, payload, background_tasks)
+    knowledge = _register_knowledge(
+        service, tenant_id=tenant_id, job_id=job.id,
+        job_type="v2_document", kb_id=kb_id,
+        collection_name=_knowledge_collection(collection_name),
+        begin=lambda pipeline: pipeline.begin_document(
+            tenant_id=tenant_id, source_uri=source_uri, kb_id=kb_id,
+            collection_name=_knowledge_collection(collection_name),
+            content_fingerprint=_fingerprint_source(source_uri),
+            job_id=job.id))
+    result = _dispatch_submitted(service, job, payload, background_tasks)
+    result.knowledge = knowledge
+    return result
 
 
 def submit_mediawiki_job(*, tenant_id: str, staged_dir: str,
@@ -660,6 +724,11 @@ def submit_mediawiki_job(*, tenant_id: str, staged_dir: str,
         input_metadata=input_metadata,
         idempotency_key=idempotency_key,
         payload_version=_default_payload_version())
+    # MediaWiki registers one knowledge document PER PAGE during
+    # execution (page identity is only known after parsing); the
+    # submission hook only performs the fail-closed authority gate so
+    # that pre-cutover submissions are rejected before any work.
+    _knowledge_pipeline_or_none()
     return _dispatch_submitted(service, job, payload, background_tasks)
 
 
@@ -696,7 +765,35 @@ def submit_upload_job(*, tenant_id: str, source_path: str,
         idempotency_key=idempotency_key,
         subject_type="document", subject_id=doc_id,
         payload_version=_default_payload_version())
-    return _dispatch_submitted(service, job, payload, background_tasks)
+    fingerprint = content_hash or _fingerprint_source(temp_path) \
+        or _fingerprint_source(source_path)
+    knowledge = _register_knowledge(
+        service, tenant_id=tenant_id, job_id=job.id,
+        job_type="v2_upload", kb_id=kb_id,
+        collection_name=_knowledge_collection(collection_name),
+        begin=lambda pipeline: pipeline.begin_upload(
+            tenant_id=tenant_id, kb_id=kb_id, source_path=source_path,
+            filename=os.path.basename(source_path or ""),
+            collection_name=_knowledge_collection(collection_name),
+            job_id=job.id, content_fingerprint=fingerprint))
+    result = _dispatch_submitted(service, job, payload, background_tasks)
+    result.knowledge = knowledge
+    return result
+
+
+def _register_knowledge(service, *, tenant_id, job_id, job_type, kb_id,
+                        collection_name, begin) -> Optional[Dict[str, Any]]:
+    """Idempotently register knowledge evidence for a durable job and
+    return its serialized context (None when knowledge is not enabled)."""
+    pipeline = _knowledge_pipeline_or_none()
+    if pipeline is None:
+        return None
+    existing = pipeline.context_for_job(tenant_id, job_id, job_type)
+    if existing is not None:
+        return existing.to_payload()
+    context = begin(pipeline)
+    return context.to_payload() if context is not None else None
+
 
 
 def _transport() -> str:

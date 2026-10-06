@@ -83,6 +83,27 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v2/documents", tags=["v2-documents"])
 
 
+class KnowledgeVerificationFailed(RuntimeError):
+    """Spec 028: the knowledge/Qdrant visibility evidence could not be
+    verified, so the job must not be reported as successful.  The new
+    points remain hidden (serving=false) and the prior current version
+    (if any) stays visible; reconciliation owns the recovery."""
+
+
+def _knowledge_fields(submission) -> dict:
+    """Additive optional knowledge identifiers for the v2 response
+    (Spec 028 §25).  Absent unless knowledge metadata is authoritative."""
+    k = getattr(submission, "knowledge", None) or {}
+    if not k:
+        return {}
+    return {
+        "document_id": k.get("document_id"),
+        "version_id": k.get("version_id"),
+        "ingestion_id": k.get("ingestion_id"),
+        "sync_state": "registered",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Parser-noise filtering (TOC dot-leaders, OCR fragments, etc.)
 # ---------------------------------------------------------------------------
@@ -381,6 +402,7 @@ def process_document_v2(
     _cancel_check: Optional["callable"] = None,
     _on_stage_change: Optional["callable"] = None,
     recorder=None,
+    knowledge_context=None,
 ):
     """Execute the 6-stage v2 ingestion pipeline in a background thread.
 
@@ -659,6 +681,18 @@ def process_document_v2(
         if cancel_check():
             raise CancellationError("Job cancelled during chunking")
 
+        # Spec 028: build the expected per-point manifest and record
+        # deterministic Qdrant operation intent BEFORE mutating Qdrant.
+        visibility_fields = None
+        if knowledge_context is not None:
+            from retriva.knowledge.pipeline import knowledge_pipeline
+            _kp = knowledge_pipeline()
+            _kp.record_intent(
+                knowledge_context,
+                [c.metadata.chunk_id for c in chunks])
+            visibility_fields = _kp.visibility_fields(
+                knowledge_context, serving=False)
+
         manager.advance_stage(job_id, JobStage.INDEXING.value)
         _sync_state()
         client = get_client()
@@ -670,9 +704,16 @@ def process_document_v2(
             manager.set_stage_detail(job_id, f"indexing {done}/{total} chunks", pct)
             _sync_state()
 
-        upsert_chunks(client, chunks, cancel_check=cancel_check, progress_callback=_indexing_progress)
+        if visibility_fields is not None:
+            upsert_chunks(client, chunks, cancel_check=cancel_check, progress_callback=_indexing_progress, visibility_fields=visibility_fields)
+        else:
+            upsert_chunks(client, chunks, cancel_check=cancel_check, progress_callback=_indexing_progress)
         manager.set_stage_detail(job_id, f"indexed {len(chunks)} chunks", 100)
         _sync_state()
+
+        if knowledge_context is not None:
+            from retriva.knowledge.pipeline import knowledge_pipeline
+            knowledge_pipeline().mark_applied(knowledge_context)
 
         # ── GRAPH_INDEXING (optional) ──────────────────────────────────
         # When settings.graph_enabled is True, extract entities and
@@ -757,6 +798,18 @@ def process_document_v2(
             except KeyError:
                 pass  # record may not exist for non-upload paths
 
+        # Spec 028 completion gate: verify manifest + Qdrant visibility,
+        # promote the new version in PostgreSQL, activate new points,
+        # deactivate prior points.  Job success is blocked until the
+        # domain and Qdrant evidence is verified.
+        if knowledge_context is not None:
+            from retriva.knowledge.pipeline import knowledge_pipeline
+            if not knowledge_pipeline().complete(
+                    knowledge_context,
+                    observed_chunk_count=len(chunks)):
+                raise KnowledgeVerificationFailed(
+                    "knowledge verification failed; replacement withheld")
+
         manager.complete_job(job_id)
         _sync_state()
         logger.info(f"new_document_ingestion_started: job={job_id}, doc_id={doc_id}, "
@@ -772,10 +825,32 @@ def process_document_v2(
         # User-initiated cancellation: discard checkpoints so a fresh upload
         # starts clean (the Celery task is not retried on cancellation).
         _cleanup_checkpoints(job_id)
+    except KnowledgeVerificationFailed as e:
+        # Spec 028: do NOT delete the hidden replacement points (they
+        # are serving=false and owned by reconciliation); record the
+        # domain failure and fail the job with a sanitized error.
+        manager.fail_job(job_id, "KnowledgeVerificationFailed")
+        _sync_state()
+        logger.error(f"Job {job_id} failed: knowledge verification")
+        try:
+            from retriva.knowledge.pipeline import knowledge_pipeline
+            knowledge_pipeline().fail(
+                knowledge_context, "verification_failed")
+        except Exception:
+            pass
+        _cleanup_failed_dedup_record(
+            dedup_store, doc_id, job_id, reason="knowledge_verification")
     except Exception as e:
         manager.fail_job(job_id, e.__class__.__name__)
         _sync_state()
         logger.error(f"Job {job_id} failed: {e.__class__.__name__}")
+        if knowledge_context is not None:
+            try:
+                from retriva.knowledge.pipeline import knowledge_pipeline
+                knowledge_pipeline().fail(
+                    knowledge_context, e.__class__.__name__)
+            except Exception:
+                pass
         # A failed ingest must not leave behind a catalog record or orphaned
         # Qdrant chunks.  The catalog record would make the next upload of
         # the same file be treated as an already-ingested duplicate and skip
@@ -1056,6 +1131,7 @@ async def ingest_document_v2(
         status="accepted",
         message="Document accepted for processing",
         job_id=submission.job.id,
+        **_knowledge_fields(submission),
     )
 
 
@@ -1354,6 +1430,7 @@ async def upload_document_v2(
         deduplicated=False,
         chunks_reused=False,
         metadata_updated=False,
+        **_knowledge_fields(submission),
     )
 
 

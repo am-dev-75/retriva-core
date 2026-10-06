@@ -268,6 +268,41 @@ specifications:
       never deleted by job retention; no client idempotency key;
       ADR-031 Core-owned)
 
+  - number: "028"
+    title: PostgreSQL-backed knowledge and ingestion metadata
+    repository: retriva-core
+    path: specs/028-postgresql-knowledge-metadata
+    status: accepted
+    allocated: "2026-10-05"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; implements the knowledge/ingestion metadata
+      persistence follow-up explicitly deferred by Spec 024 (spec §5,
+      plan.md §9) and ADR-029 (§Consequences); continues the
+      project-wide sequence past 027 (number 017 was never used by
+      any artifact and is intentionally left allocatable to avoid
+      retroactive reordering of the accepted historical sequence);
+      revision 1 presented 2026-10-05 and returned CHANGES_REQUESTED;
+      revision 2 (2026-10-05) applies the owner's binding decisions:
+      accepted cohort = v2 document + upload + mediawiki via ONE
+      common knowledge service (artifacts excluded), schema `knowledge`
+      + stream `core.knowledge` depending on core.platform + core.jobs
+      (ordering/roles; no cascading FKs into job history), SQLite KB
+      registry migrated to PostgreSQL knowledge.knowledge_bases,
+      namespaced source identity (upload:/mediawiki:/connector:/
+      internal:; path: legacy-only), document identity = tenant +
+      normalized source identity (content-hash collapse classified
+      LEGACY and corrected, no compat mode), one bounded
+      knowledge.version_chunks row per expected Qdrant point with
+      scale analysis, version-aware serving filter in Qdrant payloads
+      (no per-search relational queries), inline qdrant_operations
+      evidence with crash-window protocol (no relay outbox),
+      authority/readiness states with fail-closed gating and NO
+      legacy fallback switch, hybrid adoption with provenance classes
+      and gated live sequence; explicitly accepted for implementation
+      by the owner on 2026-10-05 (acceptance event recorded in the
+      spec and ADR status sections)
+
   - number: "027"
     title: API v1 decommissioning and legacy job-state retirement
     repository: retriva-core
@@ -608,3 +643,32 @@ adrs:
       recorded in the ADR status section); implemented and validated
       the same day (Spec 027 acceptance.md §V) — closure audit
       SUCCESS, commit deferred to a separate owner instruction
+
+  - number: "033"
+    title: PostgreSQL as the authoritative knowledge and ingestion metadata system of record
+    repository: retriva-core
+    path: docs/adr/adr-033-postgresql-knowledge-metadata.md
+    status: accepted
+    allocated: "2026-10-05"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; records the store-of-record transition for knowledge
+      and ingestion metadata (Constitution §20): PostgreSQL (new
+      Core-owned knowledge schema, stream core.knowledge) becomes
+      authoritative for document/source/version/ingestion identity and
+      lifecycle, Qdrant remains the vector system of record, and the
+      durable Core jobs subsystem (ADR-030) remains the authoritative
+      asynchronous lifecycle store; supersedes the de-facto JSON dedup
+      catalog and Qdrant-payload-based document identity only upon
+      acceptance; revision 1 presented 2026-10-05 and returned
+      CHANGES_REQUESTED; revision 2 (2026-10-05) applies the owner's
+      binding decisions (cohort + common service, final names, KB
+      registry PostgreSQL authority with SQLite freeze, namespaced
+      source identities, corrected dedup semantics with no compat
+      mode, immutable versions with verified promotion, version-aware
+      serving filter, inline operation evidence with crash-window
+      protocol, fail-closed authority/readiness states with no legacy
+      fallback switch, hybrid adoption with provenance classes and
+      gated live sequence); explicitly accepted for implementation by
+      the owner on 2026-10-05 (acceptance event recorded in the ADR
+      status section)

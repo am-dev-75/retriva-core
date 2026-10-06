@@ -376,8 +376,71 @@ def main():
         "--api-url", type=str, default="http://127.0.0.1:8000", help="API URL"
     )
 
+    # ---- knowledge: Spec 028 operator commands ----
+    knowledge_parser = subparsers.add_parser(
+        "knowledge",
+        help="Spec 028 knowledge-metadata operator commands "
+             "(status/adopt/reconcile/verify/purge/authority)",
+    )
+    ksub = knowledge_parser.add_subparsers(
+        dest="knowledge_command", required=True)
+
+    k_status = ksub.add_parser("status", help="Authority/readiness status")
+    k_status.add_argument("--tenant", type=str, default=None)
+
+    k_reg = ksub.add_parser(
+        "adopt-registry",
+        help="Migrate the SQLite KB registry to PostgreSQL (dry-run "
+             "unless --apply)")
+    k_reg.add_argument("--tenant", type=str, required=True)
+    k_reg.add_argument("--apply", action="store_true")
+
+    k_adopt = ksub.add_parser(
+        "adopt", help="Hybrid-adopt existing Qdrant content (dry-run "
+                      "unless --apply)")
+    k_adopt.add_argument("--tenant", type=str, required=True)
+    k_adopt.add_argument("--collection", type=str, required=True)
+    k_adopt.add_argument("--apply", action="store_true")
+    k_adopt.add_argument("--batch", type=int, default=100)
+    k_adopt.add_argument("--checkpoint", type=int, default=0)
+
+    k_rec = ksub.add_parser(
+        "reconcile", help="Reconcile PostgreSQL metadata vs Qdrant")
+    k_rec.add_argument("--tenant", type=str, required=True)
+    k_rec.add_argument("--collection", type=str, required=True)
+    k_rec.add_argument("--apply", action="store_true")
+
+    k_scan = ksub.add_parser(
+        "scan", help="Automated Qdrant visible-point scan (dry-run "
+                     "unless --apply)")
+    k_scan.add_argument("--tenant", type=str, required=True)
+    k_scan.add_argument("--collection", type=str, required=True)
+    k_scan.add_argument("--apply", action="store_true")
+
+    k_ver = ksub.add_parser("verify", help="Verify one document")
+    k_ver.add_argument("--tenant", type=str, required=True)
+    k_ver.add_argument("--document", type=str, required=True)
+    k_ver.add_argument("--collection", type=str, required=True)
+
+    k_purge = ksub.add_parser(
+        "purge", help="Purge deleted tombstones (dry-run unless --apply)")
+    k_purge.add_argument("--tenant", type=str, default=None)
+    k_purge.add_argument("--global-mode", action="store_true")
+    k_purge.add_argument("--apply", action="store_true")
+    k_purge.add_argument("--batch", type=int, default=100)
+    k_purge.add_argument("--retention-days", type=int, default=90)
+
+    k_auth = ksub.add_parser(
+        "authority", help="Operator authority transition (privileged)")
+    k_auth.add_argument("--set", type=str, required=True, dest="target")
+    k_auth.add_argument("--operator", type=str, required=True)
+    k_auth.add_argument("--note", type=str, default=None)
+    k_auth.add_argument("--adoption-run-ref", type=str, default=None)
+    k_auth.add_argument("--catalog-frozen", action="store_true")
+    k_auth.add_argument("--sqlite-frozen", action="store_true")
+
     args = parser.parse_args()
-    target = Path(args.path)
+    target = Path(args.path) if getattr(args, "path", None) else None
 
     # Validate --exclude values early
     exclude: set[str] = set()
@@ -416,6 +479,57 @@ def main():
             "collection directly, then run 'ingest'. No request was "
             "made.")
         return
+
+    elif args.command == "knowledge":
+        return run_knowledge(args)
+
+
+def run_knowledge(args) -> int:
+    """Dispatch Spec 028 operator commands; structured JSON output and
+    documented exit codes."""
+    import json as _json
+    import sys as _sys
+
+    from retriva.knowledge import commands as kc
+
+    try:
+        cmd = args.knowledge_command
+        if cmd == "status":
+            payload = kc.status(args.tenant)
+        elif cmd == "adopt-registry":
+            payload = kc.adopt_kb_registry(args.tenant, apply=args.apply)
+        elif cmd == "adopt":
+            payload = kc.adopt(
+                args.tenant, args.collection, apply=args.apply,
+                batch=args.batch, checkpoint=args.checkpoint)
+        elif cmd == "reconcile":
+            payload = kc.reconcile(
+                args.tenant, args.collection, apply=args.apply)
+        elif cmd == "scan":
+            payload = kc.scan(
+                args.tenant, args.collection, apply=args.apply)
+        elif cmd == "verify":
+            payload = kc.verify(
+                args.tenant, args.document, args.collection)
+        elif cmd == "purge":
+            payload = kc.purge(
+                args.tenant, apply=args.apply, batch=args.batch,
+                retention_days=args.retention_days,
+                global_mode=args.global_mode)
+        elif cmd == "authority":
+            payload = kc.set_authority(
+                args.target, operator=args.operator, note=args.note,
+                adoption_run_ref=args.adoption_run_ref,
+                catalog_frozen=args.catalog_frozen,
+                sqlite_frozen=args.sqlite_frozen)
+        else:
+            payload = {"ok": False, "exit_code": 2,
+                       "detail": "unknown knowledge subcommand"}
+    except Exception as exc:
+        payload = {"ok": False, "exit_code": 2,
+                   "error": exc.__class__.__name__}
+    print(_json.dumps(payload, indent=2, default=str))
+    return int(payload.get("exit_code", 2))
 
 
 if __name__ == "__main__":

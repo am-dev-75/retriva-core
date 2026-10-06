@@ -76,6 +76,16 @@ def init_collection(client: QdrantClient, vector_size: int = None):
     else:
         logger.debug(f"[{_get_req_id()}] Collection '{get_collection_name()}' already exists.")
 
+    # Spec 028: ensure the four version-visibility payload indexes exist
+    # (idempotent; failure must never break ingestion/retrieval startup).
+    try:
+        from retriva.knowledge.visibility import ensure_payload_indexes
+        ensure_payload_indexes(client, get_collection_name())
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug(
+            f"[{_get_req_id()}] payload index init skipped: "
+            f"{exc.__class__.__name__}")
+
 def _upsert_with_retry(client: QdrantClient, points: List[PointStruct], batch_num: int):
     """Upsert points to Qdrant with retry logic."""
     rid = _get_req_id()
@@ -99,7 +109,7 @@ def _upsert_with_retry(client: QdrantClient, points: List[PointStruct], batch_nu
                     f"[{rid}] Upsert batch {batch_num} failed after {MAX_RETRIES} attempts: {e}"
                 ) from e
 
-def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optional[Callable[[], bool]] = None, progress_callback: Optional[Callable[[int, int], None]] = None):
+def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optional[Callable[[], bool]] = None, progress_callback: Optional[Callable[[int, int], None]] = None, visibility_fields: Optional[Dict[str, Any]] = None):
     if not chunks:
         return
 
@@ -137,6 +147,8 @@ def upsert_chunks(client: QdrantClient, chunks: List[Chunk], cancel_check: Optio
                         if c.metadata.source_paths
                         else c.metadata.source_path
                     ),
+                    # Spec 028: version-aware serving visibility fields
+                    **(visibility_fields or {}),
                 }
             )
             for c, embedding in zip(batch_chunks, embeddings)
@@ -219,12 +231,19 @@ def search_chunks(
         })
 
     qdrant_filter = build_qdrant_filter(combined_filters)
-    
+
+    # Spec 028: static version-serving clause (serving=true OR absent).
+    # No PostgreSQL query runs per search or per result.
+    from retriva.knowledge.visibility import (is_authoritative,
+                                              with_serving_clause)
+    serving_filter = with_serving_clause(qdrant_filter,
+                                         authoritative=is_authoritative())
+
     if metadata_filter_mode == "hard":
         results = client.query_points(
             collection_name=get_collection_name(),
             query=query_vector,
-            query_filter=qdrant_filter,
+            query_filter=serving_filter,
             limit=retriever_top_k,
             with_payload=True
         )
@@ -247,11 +266,13 @@ def search_chunks(
     else:
         # Soft mode: Multi-recall merge (Semantic-First)
         
-        # 1. Global Semantic Recall (no filters)
-        # Ensures highly relevant documents appear even if they don't match the metadata
+        # 1. Global Semantic Recall (serving-filtered; non-serving
+        # versions must never surface even in the unfiltered recall)
         semantic_global = client.query_points(
             collection_name=get_collection_name(),
             query=query_vector,
+            query_filter=with_serving_clause(
+                None, authoritative=is_authoritative()),
             limit=retriever_top_k,
             with_payload=True
         )
@@ -263,7 +284,7 @@ def search_chunks(
             meta_res = client.query_points(
                 collection_name=get_collection_name(),
                 query=query_vector,
-                query_filter=qdrant_filter,
+                query_filter=serving_filter,
                 limit=retriever_top_k,
                 with_payload=True
             )
@@ -667,7 +688,12 @@ def search_documents(
                 must_conditions.extend(tag_filter.must)
             logger.info(f"[{rid}] discovery_metadata_filters_applied: count={len(metadata_filters)}")
 
-        discovery_filter = Filter(must=must_conditions) if must_conditions else None
+        # Spec 028: static version-serving clause for discovery too.
+        from retriva.knowledge.visibility import (is_authoritative,
+                                                  with_serving_clause)
+        discovery_filter = with_serving_clause(
+            Filter(must=must_conditions) if must_conditions else None,
+            authoritative=is_authoritative())
         
         try:
             # Use scroll to find matching documents directly (no vectors)
