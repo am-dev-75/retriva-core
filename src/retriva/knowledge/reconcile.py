@@ -26,6 +26,7 @@ side effects.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -36,6 +37,22 @@ _log = get_logger(__name__)
 
 _OPEN_OP_STATES = ("prepared", "executing", "applied_unverified",
                    "failed", "reconciliation_required")
+
+
+def canonical_point_id(value: Any) -> str:
+    """Canonicalize a Qdrant point id for comparison.
+
+    The manifest stores the deterministic 32-hex chunk id produced by the
+    chunker, while Qdrant (and adoption, which stores ``str(point.id)``)
+    returns the same id in canonical dashed-UUID form.  Comparing the two
+    representations directly would fabricate missing/orphan findings for
+    every native version, so both sides are normalized to the dashless
+    32-hex form before comparison."""
+    s = str(value)
+    try:
+        return uuid.UUID(s).hex
+    except (ValueError, AttributeError, TypeError):
+        return s.replace("-", "").lower()
 
 
 @dataclass
@@ -110,14 +127,16 @@ class Reconciler:
         # Manifest vs Qdrant for current versions.
         for version in versions:
             vid = version["version_id"]
-            expected = {r["point_id"] for r in self._manifest(
-                tenant_id, vid) if r["sync_state"] != "removed"}
+            expected = {canonical_point_id(r["point_id"])
+                        for r in self._manifest(tenant_id, vid)
+                        if r["sync_state"] != "removed"}
             present = set()
             try:
                 from retriva.knowledge.visibility import (
                     point_ids_for_version)
-                present = set(point_ids_for_version(
-                    client, collection_name, vid))
+                present = {canonical_point_id(pid)
+                           for pid in point_ids_for_version(
+                               client, collection_name, vid)}
             except Exception:
                 present = set()
             missing = expected - present

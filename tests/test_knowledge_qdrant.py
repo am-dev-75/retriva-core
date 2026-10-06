@@ -302,6 +302,7 @@ def test_adoption_missing_points_is_uncertain(knowledge_repo, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_reconcile_detects_missing_and_orphan(knowledge_repo, tmp_path):
+    tenant = "tenant-recon-iso"
     fake = FakeQdrant()
     _seed_point(fake, "d" * 32, doc_id="doc_r")
     catalog = _catalog(tmp_path, [{
@@ -314,17 +315,53 @@ def test_reconcile_detects_missing_and_orphan(knowledge_repo, tmp_path):
     }])
     migrator = AdoptionMigrator(
         knowledge_repo, qdrant_client=fake, catalog_path=catalog)
-    migrator.run(TENANT, COLLECTION, apply=True)
-    # Point exists in Qdrant but only one manifest row; no missing.
+    migrator.run(tenant, COLLECTION, apply=True)
+    # Point exists in Qdrant and its manifest row is present: clean.
     report = Reconciler(
-        knowledge_repo, qdrant_client=fake).run(TENANT, COLLECTION)
-    assert report.to_dict()["counts"]
+        knowledge_repo, qdrant_client=fake).run(tenant, COLLECTION)
+    assert not report.to_dict()["counts"]
     # Now remove the point -> missing detected.
     fake.points.pop("d" * 32)
     report2 = Reconciler(
-        knowledge_repo, qdrant_client=fake).run(TENANT, COLLECTION)
+        knowledge_repo, qdrant_client=fake).run(tenant, COLLECTION)
     assert any(f["classification"] == "missing_points"
                for f in report2.findings)
+
+
+def test_reconcile_normalizes_point_id_representation(knowledge_repo):
+    # The manifest stores the chunker's dashless 32-hex id while Qdrant
+    # returns the canonical dashed UUID; reconciliation must not fabricate
+    # missing/orphan findings for such native versions.
+    from retriva.knowledge.ids import upload_identity
+    from retriva.knowledge.service import KnowledgeService
+
+    tenant = "tenant-norm-iso"
+    service = KnowledgeService(knowledge_repo)
+    sub = service.register_submission(
+        tenant_id=tenant, identity=upload_identity("default", "norm.pdf"),
+        kb_ids=["default"], collection_name=COLLECTION, job_id="job-norm",
+        job_type="v2_upload",
+        content_fingerprint="sha256:" + "a" * 64)
+    undashed = "ab" * 16
+    dashed = (f"{undashed[:8]}-{undashed[8:12]}-{undashed[12:16]}-"
+              f"{undashed[16:20]}-{undashed[20:]}")
+    with knowledge_repo.transaction(tenant) as cur:
+        knowledge_repo.insert_version_chunks(
+            cur, tenant_id=tenant, version_id=sub.version_id,
+            rows=[{"chunk_ordinal": 0, "point_id": undashed,
+                   "sync_state": "verified"}])
+        knowledge_repo.promote_version(
+            cur, tenant_id=tenant, document_id=sub.document_id,
+            new_version_id=sub.version_id, prior_version_id=None)
+    fake = FakeQdrant()
+    fake.points[dashed] = _Rec(dashed, native_payload_fields(
+        tenant_id=tenant, document_id=sub.document_id,
+        version_id=sub.version_id, kb_ids=["default"], serving=True))
+    report = Reconciler(
+        knowledge_repo, qdrant_client=fake).run(tenant, COLLECTION)
+    assert not any(f["classification"] in ("missing_points",
+                                           "orphan_points")
+                   for f in report.findings)
 
 
 def test_reconcile_command_reports_findings(knowledge_repo, tmp_path):
