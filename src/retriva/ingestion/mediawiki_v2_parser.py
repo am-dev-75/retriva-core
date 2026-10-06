@@ -170,11 +170,12 @@ def _process_page(
             existing.source_paths, source_path_str, doc_id, kb_id
         )
         if meta_changed or paths_changed:
-            dedup_store.update_record(
-                doc_id=doc_id,
-                merged_metadata=merged_meta,
-                merged_source_paths=merged_paths,
-            )
+            if dedup_store.legacy_sync_enabled():
+                dedup_store.update_record(
+                    doc_id=doc_id,
+                    merged_metadata=merged_meta,
+                    merged_source_paths=merged_paths,
+                )
             now_iso = datetime.now(timezone.utc).isoformat()
             client = get_client()
             update_payload_by_doc_id(client, doc_id, {
@@ -217,7 +218,8 @@ def _process_page(
         created_at=now_iso,
         updated_at=now_iso,
     )
-    dedup_store.create_record(record)
+    if dedup_store.legacy_sync_enabled():
+        dedup_store.create_record(record)
 
     # Resolve [[File:…]] references → ImageContext for VLM
     images: List[ImageContext] = []
@@ -293,7 +295,8 @@ def _process_page(
                 f"({kerr.__class__.__name__})")
 
     try:
-        dedup_store.finalize_record(doc_id, chunk_count=len(chunks))
+        if dedup_store.legacy_sync_enabled():
+            dedup_store.finalize_record(doc_id, chunk_count=len(chunks))
     except KeyError:
         pass
 

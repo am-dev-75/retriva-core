@@ -280,7 +280,9 @@ async def delete_kb(kb_id: str) -> None:
 
     # Step 3 — dedup records.
     try:
-        dedup_removed = DeduplicationStore().delete_by_kb_id(kb_id)
+        _kb_store = DeduplicationStore()
+        dedup_removed = (_kb_store.delete_by_kb_id(kb_id)
+                         if _kb_store.legacy_sync_enabled() else 0)
     except Exception as exc:
         # The points are already gone; report the partial-failure state.
         logger.error(

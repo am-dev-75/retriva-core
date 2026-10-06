@@ -281,7 +281,8 @@ def _cleanup_failed_dedup_record(
     if not doc_id:
         return
     try:
-        removed = dedup_store.delete_by_doc_id(doc_id)
+        removed = (dedup_store.delete_by_doc_id(doc_id)
+                  if dedup_store.legacy_sync_enabled() else False)
         if removed:
             logger.info(
                 f"failed_ingestion_dedup_record_removed: job={job_id}, "
@@ -794,7 +795,8 @@ def process_document_v2(
         # Finalise the catalog record
         if doc_id:
             try:
-                dedup_store.finalize_record(doc_id, chunk_count=len(chunks))
+                if dedup_store.legacy_sync_enabled():
+                    dedup_store.finalize_record(doc_id, chunk_count=len(chunks))
             except KeyError:
                 pass  # record may not exist for non-upload paths
 
@@ -1267,7 +1269,8 @@ async def upload_document_v2(
             f"force_reingest: removing dedup record doc_id={existing.doc_id}, "
             f"kb_id={kb_id}, content_hash={content_hash}"
         )
-        dedup_store.delete_by_doc_id(existing.doc_id)
+        if dedup_store.legacy_sync_enabled():
+            dedup_store.delete_by_doc_id(existing.doc_id)
         try:
             client = get_client()
             delete_chunks_by_doc_id(client, existing.doc_id)
@@ -1280,7 +1283,8 @@ async def upload_document_v2(
             f"kb_id={kb_id}, content_hash={content_hash} — "
             f"removing and re-ingesting"
         )
-        dedup_store.delete_by_doc_id(existing.doc_id)
+        if dedup_store.legacy_sync_enabled():
+            dedup_store.delete_by_doc_id(existing.doc_id)
         existing = None
 
     if existing is not None:
@@ -1300,11 +1304,12 @@ async def upload_document_v2(
         any_changed = meta_changed or paths_changed
 
         if any_changed:
-            dedup_store.update_record(
-                doc_id=doc_id,
-                merged_metadata=merged_meta,
-                merged_source_paths=merged_paths,
-            )
+            if dedup_store.legacy_sync_enabled():
+                dedup_store.update_record(
+                    doc_id=doc_id,
+                    merged_metadata=merged_meta,
+                    merged_source_paths=merged_paths,
+                )
             # Patch Qdrant payloads (no re-embedding)
             from datetime import datetime, timezone
             now_iso = datetime.now(timezone.utc).isoformat()
@@ -1365,7 +1370,8 @@ async def upload_document_v2(
         created_at=now_iso,
         updated_at=now_iso,
     )
-    dedup_store.create_record(record)
+    if dedup_store.legacy_sync_enabled():
+        dedup_store.create_record(record)
 
     # Save bytes to temp file in the SHARED storage volume so the Celery
     # worker (separate container) can access it.  Using /tmp would make the

@@ -288,3 +288,10 @@ Cache-safety follow-up (2026-10-06): the legacy-catalog guard caches only
 denied authority states; permissive states are never cached, so allowed
 writes always re-confirm durable PostgreSQL state and independent
 processes cannot authorize a write from a stale permissive cache.
+
+Obsolete-callback bypass (2026-10-06): ordinary post-cutover runtime
+lifecycles skip legacy catalog synchronization before invocation
+(`DeduplicationStore.legacy_sync_enabled`), so normal document, upload,
+MediaWiki, lifecycle, and deletion paths emit no refusal events while
+the centralized refusal guard remains as defense in depth for
+unexpected callers.

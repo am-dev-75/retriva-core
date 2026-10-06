@@ -123,6 +123,14 @@ class DeduplicationStore:
         )
         return legacy_catalog_write_allowed(self._op())
 
+    def legacy_sync_enabled(self) -> bool:
+        """True only when ordinary runtime legacy-catalog synchronization is
+        applicable (pre-cutover compatibility).  Ordinary post-cutover
+        callers use this to BYPASS obsolete writers before invocation, so no
+        refusal evidence is emitted on normal paths.  The centralized guard
+        remains as defense in depth for unexpected callers."""
+        return self._writes_allowed()
+
     def _reads_allowed(self) -> bool:
         from retriva.knowledge.legacy_guard import (
             legacy_catalog_read_allowed,

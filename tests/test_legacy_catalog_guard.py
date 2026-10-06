@@ -276,3 +276,58 @@ def test_denied_state_may_be_cached_and_is_fail_closed(knowledge_repo,
     before = _fingerprint(path)
     store.create_record(_record(3))
     assert _fingerprint(path) == before
+
+
+# -- Normal-path bypass regression (Spec 028 obsolete-callback correction) --
+
+@pytest.mark.parametrize("state,expected", [
+    ("schema_ready", True), ("adoption_pending", True),
+    ("adoption_verified", True), ("authoritative", False),
+    ("suspended", False), ("reconciliation_required", False)])
+def test_legacy_sync_enabled_decision(knowledge_repo, tmp_path, state,
+                                      expected):
+    _set_state(knowledge_repo, state)
+    store = DeduplicationStore(catalog_path=_catalog(tmp_path))
+    assert store.legacy_sync_enabled() is expected
+
+
+def test_normal_path_bypass_emits_no_refusal(knowledge_repo, tmp_path):
+    """A caller using the bypass decision does not invoke a writer and emits
+    no refusal evidence post-cutover."""
+    _set_state(knowledge_repo, "authoritative")
+    reset_refusals()
+    path = _catalog(tmp_path)
+    before = _fingerprint(path)
+    store = DeduplicationStore(catalog_path=path)
+    invoked = []
+    orig = store.create_record
+    store.create_record = lambda *a, **k: (invoked.append(1), orig(*a, **k))[1]
+    # The normal-path pattern:
+    if store.legacy_sync_enabled():
+        store.create_record(_record(9))
+    assert invoked == []
+    assert refusal_counts() == {}
+    assert _fingerprint(path) == before
+
+
+def test_call_sites_are_guarded_or_present():
+    """Boundary check: every writer call in the ingestion routers/parser is
+    decision-guarded by `legacy_sync_enabled` (bypass before invocation)."""
+    import pathlib
+    root = pathlib.Path("src/retriva")
+    files = [
+        root / "ingestion_api/routers/v2_documents.py",
+        root / "ingestion/mediawiki_v2_parser.py",
+        root / "ingestion_api/routers/v2_kbs.py",
+    ]
+    writers = ("create_record(", "update_record(", "finalize_record(",
+               "delete_by_doc_id(", "delete_by_kb_id(")
+    unguarded = []
+    for f in files:
+        lines = f.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if any(w in line for w in writers) and "def " not in line:
+                window = "\n".join(lines[max(0, i - 4):i + 4])
+                if "legacy_sync_enabled" not in window:
+                    unguarded.append(f"{f.name}:{i+1}")
+    assert not unguarded, f"unguarded normal-path writers: {unguarded}"

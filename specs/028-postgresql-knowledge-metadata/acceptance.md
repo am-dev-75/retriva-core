@@ -346,3 +346,17 @@ re-confirms the current durable PostgreSQL authority state.  Proven by
 a real two-process test (process B observed allowed, process A
 transitioned to `suspended`, B's write refused, catalog byte-for-byte
 unchanged) and by focused regression tests (25 guard tests).
+
+## Obsolete-callback bypass correction (2026-10-06)
+
+Normal local-fallback paths still invoked obsolete legacy catalog
+writers after cutover (4 bounded `legacy_catalog_write_refused` events,
+catalog unchanged).  Corrected: `DeduplicationStore.legacy_sync_enabled()`
+exposes the ordinary-runtime applicability decision, and all normal
+post-cutover call sites (generic document, upload, MediaWiki, metadata
+update, document delete, KB delete) BYPASS the obsolete writers before
+invocation — normal paths now emit zero writer invocations and zero
+refusal events.  The centralized durable-authority guard remains as
+defense in depth for unexpected callers.  Regression coverage added in
+`tests/test_legacy_catalog_guard.py` (33 tests) including a call-site
+boundary check.
