@@ -28,6 +28,7 @@ import json
 import os
 import threading
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -156,6 +157,101 @@ def fingerprint_for(identity: Dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(
         identity, sort_keys=True, default=str).encode(
         "utf-8")).hexdigest()
+
+
+#: Versioned canonical upload input-identity schema (Spec 030 / ADR-035).
+UPLOAD_INPUT_SCHEMA = "v2upload-input/1"
+
+#: Payload fields that are request/host-local and MUST NOT affect the
+#: durable upload input identity (Spec 030 §2.1).
+_UPLOAD_VOLATILE_FIELDS = ("temp_path", "created_at")
+
+
+def _canonical_scalar(value: Any) -> Any:
+    if value is None or isinstance(value, bool) or isinstance(value, int) \
+            or isinstance(value, float):
+        return value
+    if isinstance(value, str):
+        return unicodedata.normalize("NFC", value)
+    return None
+
+
+def _canonical_metadata(value: Any) -> Optional[Dict[str, Any]]:
+    """Canonicalize stable user metadata: scalar values only, string
+    keys NFC-normalized, sorted for deterministic serialization."""
+    if not isinstance(value, dict):
+        return None
+    out: Dict[str, Any] = {}
+    for key in value:
+        canon = _canonical_scalar(value[key])
+        if canon is None and value[key] is not None:
+            continue  # drop non-scalar/non-stable values
+        out[unicodedata.normalize("NFC", str(key))] = canon
+    return out or None
+
+
+def _canonical_path(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    return unicodedata.normalize("NFC", value.replace("\\", "/"))
+
+
+def _canonical_mime(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    parts = [p.strip() for p in value.split(";")]
+    return unicodedata.normalize("NFC", parts[0].lower()) or None
+
+
+def canonical_upload_identity(payload: Dict[str, Any], *,
+                              tenant_id: str) -> Dict[str, Any]:
+    """Canonical, versioned semantic input identity for an upload
+    submission (Spec 030 / ADR-035).  Includes only stable fields that
+    materially affect the durable operation/result; excludes all
+    request-volatile/transport-local fields (``temp_path``,
+    ``created_at``, derived ids such as ``doc_id``/``content_size``, and
+    pre-submission dedup preconditions such as ``force``)."""
+    source_paths = payload.get("source_paths")
+    canon_paths = None
+    if isinstance(source_paths, (list, tuple)):
+        normed = sorted(p for p in
+                        (_canonical_path(x) for x in source_paths)
+                        if p)
+        canon_paths = normed or None
+    return {
+        "schema": UPLOAD_INPUT_SCHEMA,
+        "tenant_id": str(tenant_id),
+        "operation": "v2_upload",
+        "kb_id": _canonical_scalar(payload.get("kb_id")),
+        "source_identity": {
+            "source_path": _canonical_path(payload.get("source_uri")),
+            "source_paths": canon_paths,
+        },
+        "content_identity": {
+            "content_hash": _canonical_scalar(payload.get("content_hash")),
+        },
+        "content_type": _canonical_mime(payload.get("content_type")),
+        "parser_hint": _canonical_scalar(payload.get("parser_hint")),
+        "user_metadata": _canonical_metadata(payload.get("user_metadata")),
+        "processing": {
+            "payload_version": _canonical_scalar(
+                payload.get("payload_version")
+                or _default_payload_version()),
+            "collection_name": _canonical_scalar(
+                payload.get("collection_name")),
+            "ingestion_status": _canonical_scalar(
+                payload.get("ingestion_status")),
+        },
+    }
+
+
+def upload_input_fingerprint(payload: Dict[str, Any], *,
+                             tenant_id: str) -> str:
+    """Deterministic SHA-256 hex of the canonical upload identity."""
+    identity = canonical_upload_identity(payload, tenant_id=tenant_id)
+    return hashlib.sha256(json.dumps(
+        identity, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True).encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -754,17 +850,22 @@ def submit_upload_job(*, tenant_id: str, source_path: str,
         kb_id=kb_id, source_paths=source_paths,
         content_size=content_size,
         ingestion_status=ingestion_status, created_at=created_at,
-        collection_name=collection_name)
+        collection_name=collection_name,
+        payload_version=_default_payload_version())
     idempotency_key = f"v2up:{_hash_hex(f'{kb_id}|{hex_digest}')}"
     input_metadata = dict(payload)
-    input_metadata["input_fingerprint"] = fingerprint_for(payload)
-    job = service.submit(
+    # Spec 030 / ADR-035: canonical, versioned semantic input identity
+    # (excludes request-volatile temp_path/created_at and derived ids).
+    input_metadata["input_fingerprint"] = upload_input_fingerprint(
+        payload, tenant_id=tenant_id)
+    job, _created = service.submit(
         tenant_id=tenant_id, job_type="v2_upload",
         execution_transport=_transport(),
         input_metadata=input_metadata,
         idempotency_key=idempotency_key,
         subject_type="document", subject_id=doc_id,
-        payload_version=_default_payload_version())
+        payload_version=_default_payload_version(),
+        _with_status=True)
     fingerprint = content_hash or _fingerprint_source(temp_path) \
         or _fingerprint_source(source_path)
     knowledge = _register_knowledge(
@@ -776,7 +877,8 @@ def submit_upload_job(*, tenant_id: str, source_path: str,
             filename=os.path.basename(source_path or ""),
             collection_name=_knowledge_collection(collection_name),
             job_id=job.id, content_fingerprint=fingerprint))
-    result = _dispatch_submitted(service, job, payload, background_tasks)
+    result = _dispatch_submitted(service, job, payload, background_tasks,
+                                 created=_created)
     result.knowledge = knowledge
     return result
 
@@ -803,13 +905,14 @@ def _transport() -> str:
 
 def _dispatch_submitted(service: JobsService, job: JobRecord,
                         payload: Dict[str, Any],
-                        background_tasks) -> SubmissionResult:
+                        background_tasks, *, created: bool = True
+                        ) -> SubmissionResult:
     dispatch = service.dispatch_job(job, payload=payload,
                                     tenant_id=job.tenant_id)
     runner = dispatch.runner if dispatch is not None else None
     if runner is not None and background_tasks is not None:
         background_tasks.add_task(runner)
-    return SubmissionResult(job=job, created=True, local_runner=runner)
+    return SubmissionResult(job=job, created=created, local_runner=runner)
 
 
 def submit_artifact_job(*, tenant_id: str, artifact_id: str,

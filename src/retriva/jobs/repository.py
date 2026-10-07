@@ -423,6 +423,10 @@ class PostgresJobsRepository:
                     return _job_from_row(existing), False
             max_attempts_value = (
                 int(max_attempts) if max_attempts is not None else None)
+            # Spec 030: a concurrent identical submission can lose the
+            # unique-index race; wrap the INSERT in a savepoint so the
+            # convergence SELECT can run in a usable transaction.
+            cur.execute("SAVEPOINT sp_submit_job")
             try:
                 if max_attempts_value is None:
                     cur.execute(
@@ -455,13 +459,16 @@ class PostgresJobsRepository:
                          idempotency_key, requested_by, queue,
                          execution_transport, max_attempts_value))
                 row = cur.fetchone()
+                cur.execute("RELEASE SAVEPOINT sp_submit_job")
             except psycopg2.errors.UniqueViolation:
                 # Lost a race with a concurrent identical submission:
                 # idempotent convergence on the winner's row.
+                cur.execute("ROLLBACK TO SAVEPOINT sp_submit_job")
                 existing = self._find_by_idempotency(
                     cur, tenant_id, job_type, idempotency_key)
                 if existing is None:
                     raise
+                cur.execute("RELEASE SAVEPOINT sp_submit_job")
                 return _job_from_row(existing), False
             self._record_event(
                 cur, job_id=job_id, tenant_id=tenant_id,

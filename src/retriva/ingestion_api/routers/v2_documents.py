@@ -877,8 +877,11 @@ def process_document_v2(
         # On failure, keep it so Celery retries can reuse it.
         try:
             job = manager.get_job(job_id)
-            if temp_path and os.path.exists(temp_path) and job and job.status == JobStatus.COMPLETED:
-                os.remove(temp_path)
+            if temp_path and job and job.status == JobStatus.COMPLETED:
+                from retriva.ingestion_api.upload_temp import UploadTempFile
+                UploadTempFile.cleanup(
+                    temp_path,
+                    root=os.path.join(settings.storage_path, "tmp"))
         except Exception:
             pass
         # Don't delete cached OCR output on failure — it may be reused on
@@ -1375,14 +1378,14 @@ async def upload_document_v2(
 
     # Save bytes to temp file in the SHARED storage volume so the Celery
     # worker (separate container) can access it.  Using /tmp would make the
-    # file invisible to the worker.
+    # file invisible to the worker.  Spec 030 / ADR-035: the file is
+    # owned by an explicit UploadTempFile guard until ownership transfers
+    # to the durable job/worker.
+    from retriva.ingestion_api.upload_temp import UploadTempFile
     suffix = os.path.splitext(filename)[1] or ""
     tmp_dir = os.path.join(settings.storage_path, "tmp")
-    os.makedirs(tmp_dir, exist_ok=True)
-    temp_fd, temp_path = tempfile.mkstemp(suffix=suffix, dir=tmp_dir)
-    os.close(temp_fd)
-    with open(temp_path, "wb") as f:
-        f.write(file_bytes)
+    temp = UploadTempFile.create(file_bytes, suffix=suffix, root=tmp_dir)
+    temp_path = temp.path
 
     task_payload = dict(
         source_uri=source_path,
@@ -1406,21 +1409,52 @@ async def upload_document_v2(
         submit_upload_job,
     )
     tenant_id = resolve_request_tenant(request)
-    submission = submit_upload_job(
-        tenant_id=tenant_id,
-        source_path=source_path,
-        content_type=content_type,
-        user_metadata=parsed_metadata,
-        parser_hint=None,
-        temp_path=temp_path,
-        doc_id=doc_id,
-        content_hash=content_hash,
-        kb_id=kb_id,
-        source_paths=[source_path],
-        content_size=content_size,
-        ingestion_status="completed",
-        created_at=record.created_at,
-        background_tasks=background_tasks)
+    try:
+        submission = submit_upload_job(
+            tenant_id=tenant_id,
+            source_path=source_path,
+            content_type=content_type,
+            user_metadata=parsed_metadata,
+            parser_hint=None,
+            temp_path=temp_path,
+            doc_id=doc_id,
+            content_hash=content_hash,
+            kb_id=kb_id,
+            source_paths=[source_path],
+            content_size=content_size,
+            ingestion_status="completed",
+            created_at=record.created_at,
+            background_tasks=background_tasks)
+    except Exception:
+        # Conflict / submission failure / validation: the request handler
+        # still owns the temp file — clean it exactly once, then surface
+        # the error (IdempotencyConflictError maps to HTTP 409 at the app
+        # boundary).
+        temp.release()
+        raise
+
+    if not submission.created:
+        # Idempotent reuse (same key + same v2upload-input/1 identity):
+        # this request's temp file is not needed by the original job.
+        temp.release()
+        logger.info(
+            f"idempotent_upload_reuse: doc_id={doc_id}, kb_id={kb_id}, "
+            f"job_id={submission.job.id}")
+        return IngestResponseV2(
+            status="accepted",
+            message="Identical upload already accepted; existing job reused.",
+            job_id=submission.job.id,
+            doc_id=doc_id,
+            content_hash=content_hash,
+            deduplicated=True,
+            chunks_reused=True,
+            metadata_updated=False,
+            **_knowledge_fields(submission),
+        )
+
+    # New durable job: ownership of the temp file transfers to the worker
+    # / local executor, which cleans it up on terminal completion.
+    temp.transfer()
 
     logger.info(
         f"new_document_ingestion_started: doc_id={doc_id}, kb_id={kb_id}, "

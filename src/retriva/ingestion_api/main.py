@@ -135,6 +135,29 @@ async def health():
     """Health check endpoint."""
     return {"status": "ok"}
 
+
+# Spec 030 / ADR-035: map a genuine durable-job idempotency conflict (a
+# reused idempotency key with a materially different canonical input) to
+# a bounded HTTP 409 at the v2 API boundary.  It must never surface as
+# HTTP 500, and must not leak SQL, paths, fingerprints, or content.
+from fastapi.responses import JSONResponse  # noqa: E402
+
+from retriva.jobs.errors import IdempotencyConflictError  # noqa: E402
+
+
+@app.exception_handler(IdempotencyConflictError)
+async def _idempotency_conflict_handler(request, exc):
+    return JSONResponse(
+        status_code=409,
+        content={
+            "error_code": "upload_idempotency_conflict",
+            "message": ("Idempotency key was already used with a "
+                        "different input; submit the original input or "
+                        "use a new submission."),
+        },
+    )
+
+
 app.include_router(v2_discovery.router)
 app.include_router(v2_documents.router)
 app.include_router(v2_jobs.router)

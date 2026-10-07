@@ -126,9 +126,13 @@ class JobsService:
             job_id: Optional[str] = None,
             max_attempts: Optional[int] = None,
             queue: Optional[str] = None,
-    ) -> JobRecord:
+            _with_status: bool = False,
+    ):
         """T1: durable submission (idempotent; NO broker call inside
-        the transaction)."""
+        the transaction).  Returns the :class:`JobRecord`, or
+        ``(JobRecord, created)`` when ``_with_status`` is set (internal:
+        lets callers distinguish an idempotent reuse from a fresh
+        insert, e.g. temp-file ownership)."""
         spec = self.require_spec(job_type)
         import uuid
 
@@ -146,6 +150,8 @@ class JobsService:
             max_attempts=max(attempts, 1),
             queue=queue or spec.queue,
             actor=EventActor.API)
+        if _with_status:
+            return job, _created
         return job
 
     def require_spec(self, job_type: str) -> JobTypeSpec:

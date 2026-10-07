@@ -353,6 +353,28 @@ specifications:
       validation with exactly one local Core commit; live deployment
       deferred to a separate governed phase
 
+  - number: "030"
+    title: Upload idempotency, conflict mapping, and temp-file lifecycle
+    repository: retriva-core
+    path: specs/030-upload-idempotency-tempfile
+    status: accepted
+    allocated: "2026-10-07"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; corrects the duplicate-upload defect discovered during
+      post-deployment stabilization (idempotency key content-stable but
+      input fingerprint includes volatile temp_path/created_at, so an
+      equivalent re-upload raised IdempotencyConflictError surfaced as
+      HTTP 500 and leaked a temporary file); defines the canonical
+      versioned upload input identity (stable semantic fields only),
+      the bounded v2 409 conflict mapping, and an explicit temporary-
+      file ownership/cleanup state machine; clarifies the accepted
+      Spec 025 §3.1 / ADR-030 idempotency contract for the upload path
+      and does NOT reopen Spec 028 / ADR-033 or Spec 029 / ADR-034;
+      pristine-baseline reproduced deterministically on isolated
+      PostgreSQL; owner acceptance is REQUIRED before implementation
+      (Constitution §42, §43); revision 1 presented 2026-10-07
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -719,3 +741,22 @@ adrs:
       implementation (Constitution §42, §43); explicitly ACCEPTED by
       the owner on 2026-10-06 (acceptance event recorded in the ADR
       status section)
+
+  - number: "035"
+    title: Canonical upload submission identity and temp-file ownership
+    repository: retriva-core
+    path: docs/adr/adr-035-upload-idempotency-tempfile.md
+    status: accepted
+    allocated: "2026-10-07"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; records the significant cross-workflow decision to
+      define the v2 upload canonical semantic input identity (versioned
+      v2upload-input/1, stable fields only) and a temporary-file
+      ownership/cleanup state machine, mapping genuine
+      IdempotencyConflictError to a bounded HTTP 409; clarifies the
+      accepted Spec 025 §3.1 / ADR-030 idempotency contract for the
+      upload path; no schema/migration change; does NOT alter Spec 028
+      knowledge authority or the Spec 029 jobs->job_attempts lock order;
+      owner acceptance is REQUIRED before implementation (Constitution
+      §42, §43)
