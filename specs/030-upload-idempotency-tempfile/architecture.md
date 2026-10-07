@@ -68,8 +68,9 @@ Ownership states: `handler_owned` → (a) `transferred_to_worker` (payload
 carries `temp_path`; worker deletes after acquiring input) or (b)
 `transferred_to_local` (local runner deletes after processing) or
 `released_by_reuse`/`released_conflict`/`released_failure` (route deletes).
-Worker deletion is idempotent and missing-safe; a startup recovery sweep removes
-abandoned files older than a bounded age under the temp root only.
+Worker deletion is idempotent and missing-safe. An abandoned-file startup
+recovery sweep is NOT implemented in this revision (deferred); cleanup is exact
+on every ownership/terminal path exercised by the guard.
 
 ### 2.4 Semantics preservation
 

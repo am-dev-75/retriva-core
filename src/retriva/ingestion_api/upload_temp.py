@@ -136,36 +136,3 @@ class UploadTempFile:
         except OSError:
             _log.warning(_CLEANUP_FAIL)
             return False
-
-
-def sweep_abandoned(root: str, *, max_age_seconds: int) -> int:
-    """Optional, conservative recovery sweep for abandoned request-local
-    temp files older than ``max_age_seconds`` under ``root`` only.
-
-    Disabled by default; a caller must pass an age large enough that no
-    queued or running job can still own its input.  Returns the number
-    of files removed; never raises.
-    """
-    import time
-    removed = 0
-    if not root or not os.path.isdir(root):
-        return 0
-    cutoff = time.time() - max(0, int(max_age_seconds))
-    try:
-        names = os.listdir(root)
-    except OSError:
-        return 0
-    for name in names:
-        candidate = os.path.join(root, name)
-        try:
-            if os.path.islink(candidate) or not os.path.isfile(candidate):
-                continue
-            if os.path.getmtime(candidate) > cutoff:
-                continue
-            if UploadTempFile.cleanup(candidate, root=root):
-                removed += 1
-        except OSError:
-            continue
-    if removed:
-        _log.info("upload_tempfile_sweep_removed=%d", removed)
-    return removed

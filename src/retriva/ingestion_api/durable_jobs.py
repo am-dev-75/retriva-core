@@ -176,18 +176,49 @@ def _canonical_scalar(value: Any) -> Any:
     return None
 
 
+def _canonical_value(value: Any) -> Any:
+    """Recursively canonicalize an accepted JSON-compatible value.
+
+    Strings are NFC-normalized; lists/tuples become deterministically
+    ordered, de-duplicated lists of canonical values; dicts get sorted,
+    NFC-normalized keys.  Values that are not JSON-compatible scalars,
+    lists, or dicts are dropped (they cannot be persisted detectably)."""
+    if value is None or isinstance(value, bool) or isinstance(value, int) \
+            or isinstance(value, float):
+        return value
+    if isinstance(value, str):
+        return unicodedata.normalize("NFC", value)
+    if isinstance(value, (list, tuple)):
+        canonical_items = [_canonical_value(item) for item in value]
+        seen = []
+        for item in canonical_items:
+            if item is None:
+                continue
+            marker = json.dumps(item, sort_keys=True, default=str)
+            if marker not in seen:
+                seen.append(marker)
+        ordered = sorted(seen)
+        return [json.loads(marker) for marker in ordered]
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for key in sorted(value, key=lambda k: str(k)):
+            canon = _canonical_value(value[key])
+            if canon is None and value[key] is not None:
+                continue
+            out[unicodedata.normalize("NFC", str(key))] = canon
+        return out
+    return None
+
+
 def _canonical_metadata(value: Any) -> Optional[Dict[str, Any]]:
-    """Canonicalize stable user metadata: scalar values only, string
-    keys NFC-normalized, sorted for deterministic serialization."""
+    """Canonicalize accepted stable user metadata: JSON-compatible
+    values are recursively canonicalized (never silently dropped when
+    semantically meaningful); list-valued fields such as ``kb_ids``
+    become deterministically sorted, de-duplicated sets."""
     if not isinstance(value, dict):
         return None
-    out: Dict[str, Any] = {}
-    for key in value:
-        canon = _canonical_scalar(value[key])
-        if canon is None and value[key] is not None:
-            continue  # drop non-scalar/non-stable values
-        out[unicodedata.normalize("NFC", str(key))] = canon
-    return out or None
+    canon = _canonical_value(value)
+    return canon or None
 
 
 def _canonical_path(value: Any) -> Optional[str]:
@@ -828,6 +859,27 @@ def submit_mediawiki_job(*, tenant_id: str, staged_dir: str,
     return _dispatch_submitted(service, job, payload, background_tasks)
 
 
+def _upload_job_payload(*, source_path, content_type, user_metadata,
+                        parser_hint, temp_path, doc_id, content_hash,
+                        kb_id, source_paths, content_size,
+                        ingestion_status, created_at,
+                        collection_name) -> Dict[str, Any]:
+    """Stable upload job payload forwarded to the worker/local handler.
+
+    Contract: keys MUST match the accepted worker handler signature
+    (``process_document_task`` / ``process_document_v2``).  The
+    processing-contract version is carried by the durable submission
+    argument, NOT this execution payload."""
+    return dict(
+        source_uri=source_path, content_type=content_type,
+        user_metadata=user_metadata, parser_hint=parser_hint,
+        temp_path=temp_path, doc_id=doc_id, content_hash=content_hash,
+        kb_id=kb_id, source_paths=source_paths,
+        content_size=content_size,
+        ingestion_status=ingestion_status, created_at=created_at,
+        collection_name=collection_name)
+
+
 def submit_upload_job(*, tenant_id: str, source_path: str,
                       content_type: Optional[str],
                       user_metadata: Optional[Dict[str, Any]],
@@ -843,15 +895,13 @@ def submit_upload_job(*, tenant_id: str, source_path: str,
 ) -> SubmissionResult:
     service = jobs_service()
     hex_digest = (content_hash or "").split(":", 1)[-1]
-    payload = dict(
-        source_uri=source_path, content_type=content_type,
+    payload = _upload_job_payload(
+        source_path=source_path, content_type=content_type,
         user_metadata=user_metadata, parser_hint=parser_hint,
         temp_path=temp_path, doc_id=doc_id, content_hash=content_hash,
         kb_id=kb_id, source_paths=source_paths,
-        content_size=content_size,
-        ingestion_status=ingestion_status, created_at=created_at,
-        collection_name=collection_name,
-        payload_version=_default_payload_version())
+        content_size=content_size, ingestion_status=ingestion_status,
+        created_at=created_at, collection_name=collection_name)
     idempotency_key = f"v2up:{_hash_hex(f'{kb_id}|{hex_digest}')}"
     input_metadata = dict(payload)
     # Spec 030 / ADR-035: canonical, versioned semantic input identity

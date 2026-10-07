@@ -89,6 +89,65 @@ def test_fingerprint_differs_on_material_change():
     assert _fp({"source_uri": "other.txt"}) != _fp()
 
 
+# -- worker payload contract (regression: payload_version must NOT leak) -----
+
+def test_upload_payload_has_no_payload_version_and_binds_local_handler():
+    import inspect
+    from retriva.ingestion_api.durable_jobs import _upload_job_payload
+    from retriva.ingestion_api.routers.v2_documents import (
+        process_document_v2)
+    payload = _upload_job_payload(
+        source_path="f.txt", content_type="text/plain",
+        user_metadata={"kb_ids": ["default"]}, parser_hint=None,
+        temp_path="/t/x", doc_id="d", content_hash="sha256:" + "a" * 64,
+        kb_id="default", source_paths=["f.txt"], content_size=1,
+        ingestion_status="completed", created_at="x", collection_name=None)
+    assert "payload_version" not in payload
+    params = set(inspect.signature(process_document_v2).parameters)
+    # collection_name is popped by the handler adapters before the call.
+    unexpected = set(payload) - params - {"collection_name"}
+    assert unexpected == set(), f"unexpected handler kwargs: {unexpected}"
+
+
+def test_upload_payload_binds_celery_task_signature():
+    import inspect
+    from retriva.ingestion_api.durable_jobs import _upload_job_payload
+    from celery import Celery
+    from retriva.ingestion_api.tasks import _register_tasks
+    app = Celery("sigcheck")
+    _register_tasks(app)
+    task = app.tasks["retriva.ingestion_api.tasks.process_document_task"]
+    params = set(inspect.signature(task.run).parameters)
+    payload = _upload_job_payload(
+        source_path="f.txt", content_type="text/plain",
+        user_metadata=None, parser_hint=None, temp_path="/t/x", doc_id="d",
+        content_hash="sha256:" + "a" * 64, kb_id="default",
+        source_paths=["f.txt"], content_size=1,
+        ingestion_status="completed", created_at="x", collection_name=None)
+    auth = {"job_id", "attempt_id", "tenant_id", "dispatch_token",
+            "celery_task_id"}
+    unexpected = set(payload) - params - auth
+    assert "payload_version" not in payload
+    assert unexpected == set(), f"unexpected task kwargs: {unexpected}"
+
+
+def test_kb_ids_canonicalized_as_sorted_dedup_set():
+    a = _fp({"user_metadata": {"kb_ids": ["b", "a", "b"]}})
+    b = _fp({"user_metadata": {"kb_ids": ["a", "b"]}})
+    assert a == b  # order- and duplicate-insensitive
+    c = _fp({"user_metadata": {"kb_ids": ["a", "c"]}})
+    assert a != c  # membership matters (no silent drop)
+
+
+def test_nested_metadata_recursively_canonicalized():
+    a = _fp({"user_metadata": {"tags": ["x", "y"],
+                               "nested": {"b": 2, "a": 1}}})
+    b = _fp({"user_metadata": {"nested": {"a": 1, "b": 2},
+                               "tags": ["y", "x"]}})
+    assert a == b  # nested dict/list preserved and canonicalized
+    assert a != _fp({"user_metadata": {"tags": ["x"]}})
+
+
 # -- UploadTempFile ownership ------------------------------------------------
 
 def test_tempfile_lifecycle_idempotent_and_missing_safe(tmp_path):

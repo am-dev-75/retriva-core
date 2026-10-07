@@ -21,7 +21,7 @@ Status: PROPOSED. Governing: ADR-035.
 - Use it for the upload `input_fingerprint`; keep idempotency key content-stable.
 - Map `IdempotencyConflictError` → 409 with stable code at the v2 boundary.
 - Add `UploadTempFile` ownership guard + worker/local cleanup parity + startup
-  sweep; wire all upload routes.
+  wire all upload routes (no startup sweep in this revision).
 
 ## Phase 3 — Deterministic tests
 - Canonicalization vectors; unit + integration (real PG); route 500→409;

@@ -59,8 +59,9 @@ routes; no API v1 work; OpenAPI updated only if the public contract requires it.
 **R7 — Temp-file ownership.** Explicit ownership state machine; exactly one
 current owner; exactly-once idempotent missing-safe deletion; no deletion before
 worker-safe acquisition; cleanup confined to the configured upload temp root
-with symlink/path-traversal safety; startup recovery sweep for abandoned files;
-low-cardinality metrics; Celery and local-fallback parity.
+with symlink/path-traversal safety; low-cardinality metrics; Celery and
+local-fallback parity. An abandoned-file startup recovery sweep is NOT
+implemented in this revision (deferred; see ADR-035).
 
 **R8 — Preserve accepted architecture.** Spec 029 `jobs -> job_attempts`, Spec
 028 authority/Qdrant/frozen evidence, migration ledgers, and RLS/roles are

@@ -94,8 +94,8 @@ state machine**, §43 requires this decision in an ADR before implementation.
    current owner per file; exactly-once, idempotent, missing-safe deletion;
    deletion only after worker-safe acquisition; cleanup confined to the
    configured upload temp root with symlink/race safety; low-cardinality
-   cleanup metrics; Celery and local-fallback parity; startup recovery sweep
-   for abandoned files.
+   cleanup metrics; Celery and local-fallback parity. An abandoned-file
+   startup recovery sweep is NOT implemented in this revision (deferred).
 
 7. **No migration.** The change is code + tests; no schema, RLS, grant, trigger,
    or index change. Disposition: **no migration required**.
