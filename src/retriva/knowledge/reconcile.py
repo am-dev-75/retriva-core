@@ -83,6 +83,31 @@ class ReconcileReport:
         }
 
 
+def _serving_point_count(client, collection_name, version_id) -> int:
+    """Count retrieval-visible points (`serving=true`) for a version."""
+    try:
+        from retriva.knowledge.visibility import FIELD_SERVING, version_filter
+    except Exception:
+        return 0
+    count = 0
+    offset = None
+    try:
+        while True:
+            recs, offset = client.scroll(
+                collection_name=collection_name,
+                scroll_filter=version_filter(version_id),
+                limit=1000, offset=offset, with_payload=True,
+                with_vectors=False)
+            for r in recs:
+                if (r.payload or {}).get(FIELD_SERVING) is True:
+                    count += 1
+            if offset is None:
+                break
+    except Exception:
+        return count
+    return count
+
+
 class Reconciler:
     def __init__(self, repository: Optional[KnowledgeRepository] = None,
                  qdrant_client=None):
@@ -153,6 +178,14 @@ class Reconciler:
                 report.add(
                     "stale_superseded_points", version_id=vid,
                     count=len(present))
+                serving = _serving_point_count(
+                    client, collection_name, vid)
+                if serving:
+                    # Integrity incident: a superseded point must never be
+                    # retrieval-visible (Spec 031 §11).
+                    report.add(
+                        "superseded_but_serving", version_id=vid,
+                        count=serving)
             if version["provenance"] == "adopted_uncertain":
                 report.add(
                     "uncertain_adoption_evidence", version_id=vid)

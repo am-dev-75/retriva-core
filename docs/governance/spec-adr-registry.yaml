@@ -375,6 +375,27 @@ specifications:
       PostgreSQL; owner acceptance is REQUIRED before implementation
       (Constitution §42, §43); revision 1 presented 2026-10-07
 
+  - number: "031"
+    title: Superseded-version Qdrant point lifecycle
+    repository: retriva-core
+    path: specs/031-superseded-point-lifecycle
+    status: accepted
+    allocated: "2026-10-07"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; defines retain-then-delete lifecycle, fail-closed purge
+      eligibility, durable cleanup intent/evidence reusing
+      knowledge.qdrant_operations (no migration), explicit-id bounded
+      deletion with a mandatory read-only zero-point postcondition,
+      idempotency/retry/ambiguity handling, dry-run, execution-model
+      options, reconciliation classification, and tenancy/security
+      constraints for Qdrant points belonging to superseded versions of
+      active documents; cross-references Spec 028 / ADR-033 as the
+      knowledge-metadata and Qdrant-operation foundation (not reopened);
+      explicitly separate from Spec 030 upload-staging cleanup; owner
+      acceptance and retention/execution decisions are REQUIRED before
+      implementation; revision 1 presented 2026-10-07
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -760,3 +781,21 @@ adrs:
       knowledge authority or the Spec 029 jobs->job_attempts lock order;
       owner acceptance is REQUIRED before implementation (Constitution
       §42, §43)
+
+
+  - number: "036"
+    title: Superseded-version Qdrant point retention and cleanup
+    repository: retriva-core
+    path: docs/adr/adr-036-superseded-point-retention.md
+    status: accepted
+    allocated: "2026-10-07"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; decides retain-then-delete with a bounded retention
+      window (owner options 7/30/90 days), fail-closed eligibility,
+      reuse of the accepted qdrant_operations delete_points operation
+      model (no migration), dry-run-first with operator-reviewable
+      output, and a hybrid operator/scheduled execution model; owner
+      decision points D1-D5 recorded; does NOT reopen Spec 028 / ADR-033
+      or alter Spec 029 / ADR-034 lock ordering or Spec 030 upload temp
+      ownership; owner acceptance REQUIRED before implementation
