@@ -396,6 +396,25 @@ specifications:
       acceptance and retention/execution decisions are REQUIRED before
       implementation; revision 1 presented 2026-10-07
 
+  - number: "032"
+    title: Bounded Celery/Redis worker-loss redelivery and R7 interaction
+    repository: retriva-core
+    path: specs/032-worker-loss-redelivery
+    status: accepted
+    allocated: "2026-10-08"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; defines the transport-specific worker-loss redelivery bounds
+      (Kombu Redis visibility_timeout, default 3600 s, no configuration
+      surface) and their safe interaction with the R7 stale-RUNNING threshold
+      (1800 s); supersedes the prompt-redelivery assumption in
+      DETERMINATION-orphaned-running-recovery.md; recommends retaining
+      V=3600/R=1800 with T8 claim/takeover and execution_generation fencing
+      (Option B) and, as fallback, a governed configurable V (Option A) that
+      requires bounding per-task hard time limits first; no migration; no
+      product or configuration change; owner acceptance REQUIRED before
+      implementation (Constitution §42, §43)
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -799,3 +818,18 @@ adrs:
       decision points D1-D5 recorded; does NOT reopen Spec 028 / ADR-033
       or alter Spec 029 / ADR-034 lock ordering or Spec 030 upload temp
       ownership; owner acceptance REQUIRED before implementation
+
+  - number: "037"
+    title: Worker-loss redelivery bounds and R7 interaction
+    repository: retriva-core
+    path: docs/adr/adr-037-worker-loss-redelivery-bounds.md
+    status: accepted
+    allocated: "2026-10-08"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      records the decision to retain the Kombu Redis default
+      visibility_timeout (3600 s) and the R7 threshold (1800 s) with T8
+      claim/takeover safety, or to bound V only after per-task hard limits are
+      accepted; supersedes the prompt-redelivery assumption in
+      DETERMINATION-orphaned-running-recovery.md; no migration; owner
+      acceptance REQUIRED before implementation (Constitution §42, §43)
