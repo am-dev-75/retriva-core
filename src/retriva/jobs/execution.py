@@ -151,6 +151,7 @@ def execute_durable_job(
             detail={"via": "exception",
                     "exception_class": exc.__class__.__name__})
         log.info("job cancelled cooperatively: job=%s", job_id)
+        _release_terminal_temp(decision.job, log)
         return "cancelled"
     except Exception as exc:  # noqa: BLE001 - classified below
         error = SanitizedError(
@@ -172,11 +173,16 @@ def execute_durable_job(
             log.info(
                 "failure callback was a duplicate (attempt not "
                 "running): job=%s attempt=%s", job_id, attempt_id)
+        else:
+            # Terminal failure (retry exhaustion): the staged temp file
+            # can no longer be consumed.
+            _release_terminal_temp(decision.job, log)
         return "failed"
     if outcome.kind == "cancelled":
         repo.acknowledge_cooperative_cancel(
             tenant_id=tenant_id, job_id=job_id, attempt_id=attempt_id,
             detail=(outcome.detail or {}))
+        _release_terminal_temp(decision.job, log)
         return "cancelled"
     if outcome.kind == "failure":
         failure = repo.complete_failure(
@@ -192,6 +198,8 @@ def execute_durable_job(
                 job_id, failure.attempt.attempt_no)
             if rescheduler is not None:
                 rescheduler(job_id, tenant_id, _delay_for(failure))
+        elif failure is not None:
+            _release_terminal_temp(decision.job, log)
         return "failed"
     # success (explicit or the handler forgot to mark; the claim made
     # the attempt running and the pipeline completed normally).
@@ -199,7 +207,26 @@ def execute_durable_job(
         tenant_id=tenant_id, job_id=job_id, attempt_id=attempt_id,
         result_metadata=outcome.result_metadata,
         detail=outcome.detail)
+    _release_terminal_temp(decision.job, log)
     return "succeeded"
+
+
+def _release_terminal_temp(job, log) -> None:
+    """Release the staged temp file referenced by a terminal job.
+
+    Idempotent and missing-safe; confined to the accepted staging root
+    (Spec 030 shared primitive).  Never raises.  Retains the file while
+    a retry generation or ambiguous-recovery path may still consume it
+    (this helper is only called for terminal success/failure/cancel)."""
+    try:
+        from retriva.ingestion_api.upload_temp import (
+            release_job_staged_temp,
+        )
+        if release_job_staged_temp(getattr(job, "input_metadata", None)):
+            log.info("staged temp released on terminal outcome: job=%s",
+                     job.id)
+    except Exception:  # noqa: BLE001 - cleanup is best-effort
+        pass
 
 
 def _delay_for(failure) -> float:

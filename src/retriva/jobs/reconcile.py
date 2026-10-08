@@ -180,6 +180,7 @@ def reconcile(service, *, tenant_id: Optional[str],
                 attempt_id=unclaimed[0].id):
             log_action(job, "R3", "cancelled_never_executed")
             note(job, "R3", "cancel_unclaimed")
+            _release_job_temp(job)
         elif running:
             # No terminal evidence: NO false terminal claim, NO
             # automatic replay (cancel intent is authoritative).
@@ -354,6 +355,11 @@ def _resolve_divergence(service, repo, job) -> None:
             tenant_id=job.tenant_id, job_id=job.id,
             resolution=resolution,
             reason="attempt_outcome_adopted")
+        # Terminal adoption: no future attempt can consume the staged
+        # temp file (idempotent, missing-safe; pending/manual_review
+        # below retain it).
+        if resolution in ("succeeded", "failed"):
+            _release_job_temp(job)
         return
     # lost / cancelled / dispatch_failed: cancel intent → cancelled;
     # otherwise restart-safety gates the re-dispatch entry (R1):
@@ -364,6 +370,7 @@ def _resolve_divergence(service, repo, job) -> None:
             tenant_id=job.tenant_id, job_id=job.id,
             resolution="cancelled",
             reason="divergence_with_cancel_intent")
+        _release_job_temp(job)
     elif _spec_for(service, job) and _spec_for(
             service, job).restart_safe:
         repo.adopt_divergence_outcome(
@@ -382,6 +389,20 @@ def _spec_for(service, job):
         return service.require_spec(job.job_type)
     except Exception:  # noqa: BLE001 - unknown type: conservative
         return None
+
+
+def _release_job_temp(job) -> None:
+    """Release the staged temp file for a job that just reached a
+    terminal outcome through reconciliation.  Idempotent, missing-safe,
+    confined to the accepted staging root; never raises.  Retained for
+    pending/manual_review (a future recovery may still consume it)."""
+    try:
+        from retriva.ingestion_api.upload_temp import (
+            release_job_staged_temp,
+        )
+        release_job_staged_temp(getattr(job, "input_metadata", None))
+    except Exception:  # noqa: BLE001 - cleanup is best-effort
+        pass
 
 
 def _adopt_from_finalization_evidence(service, job, attempt) -> bool:

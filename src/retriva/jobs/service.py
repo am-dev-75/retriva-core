@@ -291,7 +291,9 @@ class JobsService:
                     celery_task_id=celery_task_id,
                     task_name=self.require_spec(
                         job.job_type).task_name,
-                    job_type=job.job_type, payload={}), tenant_id,
+                    job_type=job.job_type,
+                    payload=task_payload_from_metadata(job)),
+                tenant_id,
                 queue=job.queue
                 or self.require_spec(job.job_type).queue)
             if dispatch is not None and dispatch.runner is not None:

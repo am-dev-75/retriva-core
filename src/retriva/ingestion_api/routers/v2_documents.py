@@ -660,6 +660,15 @@ def process_document_v2(
         normalized.created_at = created_at
         normalized.content_text = normalize_text(normalized.content_text)
 
+        # Spec 028 §3.5: derive per-version point ids from the persisted
+        # version ``chunk_id_seed`` (document id + content fingerprint) so
+        # a changed-content replacement never reuses the prior version's
+        # point ids (tenant-wide unique ``version_chunks.point_id``).
+        if knowledge_context is not None:
+            _chunk_seed = getattr(knowledge_context, "chunk_id_seed", None)
+            if _chunk_seed:
+                normalized.chunk_id_seed = _chunk_seed
+
         if not normalized.content_text.strip() and not normalized.images:
             logger.warning(
                 f"Job {job_id}: empty content after normalization "

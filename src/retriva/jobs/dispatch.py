@@ -73,9 +73,14 @@ class PublicationOutcome(str, Enum):
 
 #: Bounded exception classes that occur BEFORE the broker could accept
 #: the message (dial-level refusal, pre-acceptance authentication
-#: failure).  Every unmapped class defaults to AMBIGUOUS (fail-safe):
-#: a mid-call reset must never be treated as proof of rejection.
-_DEFINITE_REJECTION_CLASSES: tuple = (ConnectionRefusedError,)
+#: failure).  ``TypeError`` is a deterministic, pre-broker local
+#: validation failure: Celery raises it at ``apply_async`` when the task
+#: signature rejects the (reconstructed) arguments, so the message was
+#: never published and the outcome must be classified definitively
+#: rather than ambiguous (Spec 025 §3.7).  Every unmapped class defaults
+#: to AMBIGUOUS (fail-safe): a mid-call reset must never be treated as
+#: proof of rejection.
+_DEFINITE_REJECTION_CLASSES: tuple = (ConnectionRefusedError, TypeError)
 
 
 def _definite_rejection_classes() -> tuple:

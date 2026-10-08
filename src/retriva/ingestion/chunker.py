@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hashlib
 import re
 from datetime import datetime, timezone
 from typing import List, Tuple
@@ -33,6 +32,25 @@ _RE_MD_HEADING = re.compile(r"^(#{1,4})\s+(.+)$")
 # A markdown table row: starts with an optional '|' and contains at least
 # one more '|'.  Used by the table-aware splitting path.
 _RE_TABLE_ROW = re.compile(r"^\s*\|.*\|")
+
+
+def _document_point_id(document: ParsedDocument, idx: int, *,
+                       image: bool = False) -> str:
+    """Deterministic point id for one chunk of a parsed document.
+
+    Uses the persisted version ``chunk_id_seed`` when present (native
+    knowledge ingestion; Spec 028 §3.5).  The seed embeds the content
+    fingerprint, so a changed-content replacement of the same document
+    yields point ids distinct from the prior version's manifest and can
+    never collide with the tenant-wide unique ``version_chunks.point_id``.
+    Legacy callers without a seed keep the historical
+    ``canonical_doc_id`` derivation verbatim (reconcilable with existing
+    points)."""
+    seed = getattr(document, "chunk_id_seed", None) or \
+        document.canonical_doc_id
+    from retriva.knowledge.ids import derive_point_id
+    return derive_point_id(seed, idx,
+                           chunk_type="image" if image else "text")
 
 
 def _is_table_text(text: str) -> bool:
@@ -251,7 +269,7 @@ def create_image_chunks(document: ParsedDocument, ingestion_timestamp: str = Non
         
         text = "\n".join(text_parts)
         
-        chunk_id = hashlib.md5(f"{document.canonical_doc_id}_img_{idx}".encode("utf-8")).hexdigest()
+        chunk_id = _document_point_id(document, idx, image=True)
         meta = ChunkMetadata(
             doc_id=document.doc_id or document.canonical_doc_id,
             source_path=document.source_path,
@@ -333,7 +351,7 @@ def create_chunks(document: ParsedDocument) -> List[Chunk]:
         # Prepend section context for embedding quality
         enriched_text = _prepend_section_context(text, section_heading)
 
-        chunk_id = hashlib.md5(f"{document.canonical_doc_id}_{idx}".encode("utf-8")).hexdigest()
+        chunk_id = _document_point_id(document, idx, image=False)
         meta = ChunkMetadata(
             doc_id=document.doc_id or document.canonical_doc_id,
             source_path=document.source_path,

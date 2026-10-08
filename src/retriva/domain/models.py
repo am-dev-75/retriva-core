@@ -73,6 +73,13 @@ class ParsedDocument(BaseModel):
     doc_id: Optional[str] = None
     content_hash: Optional[str] = None
     source_paths: Optional[List[str]] = None
+    # --- Native knowledge version seed (Spec 028 §3.5; optional) ---
+    # Persisted per-version property (``document_id:content_fingerprint``)
+    # used to derive deterministic point ids.  When present the chunker
+    # derives ids from it so a changed-content replacement produces ids
+    # distinct from the prior version's manifest; when absent the legacy
+    # ``canonical_doc_id`` derivation is kept verbatim.
+    chunk_id_seed: Optional[str] = None
 
 
 def _default_collection_name() -> str:

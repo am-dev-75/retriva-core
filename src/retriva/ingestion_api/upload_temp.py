@@ -136,3 +136,27 @@ class UploadTempFile:
         except OSError:
             _log.warning(_CLEANUP_FAIL)
             return False
+
+
+def staging_root() -> str:
+    """Accepted staging root for durable ingestion temp files."""
+    from retriva.config import settings
+    return os.path.join(settings.storage_path, "tmp")
+
+
+def release_staged_temp(temp_path: Optional[str]) -> bool:
+    """Release one staged temp file under the accepted staging root.
+
+    Idempotent and missing-safe; shares the exact confinement and
+    symlink guards as :class:`UploadTempFile` (Spec 030 / ADR-035)."""
+    return UploadTempFile.cleanup(temp_path, root=staging_root())
+
+
+def release_job_staged_temp(input_metadata: Optional[dict]) -> bool:
+    """Release the staged temp file referenced by durable job input
+    metadata, if any.  Called once a job can no longer consume it
+    (terminal success / terminal failure / cancellation / exhaustion).
+    Idempotent and missing-safe."""
+    if not input_metadata:
+        return False
+    return release_staged_temp(input_metadata.get("temp_path"))
