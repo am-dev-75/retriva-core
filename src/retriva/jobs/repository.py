@@ -1909,6 +1909,18 @@ class PostgresJobsRepository:
             "WHERE job_id = %s AND tenant_id = %s AND status = 'queued'",
             (job_id, tenant_id))
         ev["queued_attempts"] = int(cur.fetchone()["n"])
+        # Spec 033 §6: "no ... terminal success" — a durably succeeded
+        # attempt is terminal-success evidence and fails the no-effect
+        # proof closed (dry-run and apply alike).
+        cur.execute(
+            "SELECT count(*) AS n FROM jobs.job_attempts "
+            "WHERE job_id = %s AND tenant_id = %s AND status = 'succeeded'",
+            (job_id, tenant_id))
+        ev["succeeded_attempts"] = int(cur.fetchone()["n"])
+        if ev["succeeded_attempts"] != 0:
+            raise JobsError(
+                "terminalize: terminal success evidence exists for "
+                "this generation")
         ev["cancel_requested"] = bool(job["cancel_requested_at"])
         # durable no-effect evidence (authoritative PostgreSQL)
         cur.execute(
