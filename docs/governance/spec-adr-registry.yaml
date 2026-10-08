@@ -430,6 +430,22 @@ specifications:
       job-scoped operator command (Option 2, recommended); no migration; owner
       acceptance REQUIRED before implementation
 
+  - number: "034"
+    title: Redis destructive-command hardening and least-privilege identities
+    repository: retriva-core
+    path: specs/034-redis-destructive-command-hardening
+    status: accepted
+    allocated: "2026-10-08"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      preventive hardening following the closed Spec 033 recovery deviation
+      (unauthorized live FLUSHALL, disposition A): deny-by-default ACL roles
+      for broker/results/monitor/health, a disabled emergency principal,
+      destructive-command denial, authenticated health check, loopback port
+      binding, ACL persistence with hashed passwords, monitoring, isolated
+      validation, and a separate deployment gate; no migration; ACCEPTED by
+      owner 2026-10-08 (recommended control set accepted)
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -861,3 +877,18 @@ adrs:
       DISPATCH_UNKNOWN->FAILED) and the owner choice between extending the
       accepted transitions or using the legal LOST/T9/T22 route with a
       privileged operator command; no migration; owner acceptance REQUIRED
+
+  - number: "039"
+    title: Redis destructive-command denial and least-privilege identities
+    repository: retriva-core
+    path: docs/adr/adr-039-redis-destructive-command-hardening.md
+    status: accepted
+    allocated: "2026-10-08"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      records the decision to harden the project Redis instance with
+      least-privilege ACL identities, FLUSHALL/FLUSHDB denial, an emergency
+      break-glass principal, authenticated health checks, loopback-only
+      exposure, and ACL persistence after the recorded FLUSHALL deviation;
+      no migration; ACCEPTED by owner 2026-10-08 (recommended control set
+      accepted)
