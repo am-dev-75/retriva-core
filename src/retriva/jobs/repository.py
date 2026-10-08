@@ -59,6 +59,8 @@ from retriva.jobs.domain import (
     PublicationState,
     RetryClass,
     SanitizedError,
+    assert_attempt_transition_allowed,
+    assert_transition_allowed,
 )
 from retriva.jobs.errors import (
     IdempotencyConflictError,
@@ -1822,6 +1824,270 @@ class PostgresJobsRepository:
             cur.execute("SELECT * FROM jobs.jobs WHERE id = %s",
                         (job_id,))
             return _job_from_row(cur.fetchone())
+
+    # -- incident-specific no-effect terminalization (Spec 033 / ADR-038) ------
+
+    TERMINALIZE_REASON = (
+        "operator_fail_clean_pre_fix_ambiguous_generation_no_effects")
+
+    def no_effect_evidence(self, *, tenant_id: str, job_id: str,
+                           attempt_id: str,
+                           expected_execution_generation: int,
+                           expected_publication_state: str = "unknown",
+                           ) -> Dict[str, Any]:
+        """Read-only durable no-effect evidence + stable fingerprint for
+        ONE ``dispatch_unknown`` generation (Spec 033).  Never writes."""
+        tenant_id = validate_tenant_id(tenant_id)
+        with self._transaction(tenant_id) as cur:
+            return self._no_effect_evidence(
+                cur, tenant_id=tenant_id, job_id=job_id,
+                attempt_id=attempt_id,
+                expected_execution_generation=expected_execution_generation,
+                expected_publication_state=expected_publication_state)
+
+    @staticmethod
+    def _evidence_fingerprint(evidence: Dict[str, Any]) -> str:
+        import hashlib
+        import json as _json
+        return hashlib.sha256(
+            _json.dumps(evidence, sort_keys=True, default=str)
+            .encode("utf-8")).hexdigest()
+
+    def _no_effect_evidence(self, cur, *, tenant_id: str, job_id: str,
+                            attempt_id: str,
+                            expected_execution_generation: int,
+                            expected_publication_state: str,
+                            ) -> Dict[str, Any]:
+        """Compute the bounded, redacted no-effect evidence dict.
+
+        Authoritative PostgreSQL evidence only; fails closed when any
+        precondition is violated.  Contains no raw identifiers.
+        """
+        job = self._lock_job_row(cur, job_id=job_id, tenant_id=tenant_id)
+        if job is None:
+            raise JobsError("terminalize: job not found in tenant scope")
+        att = self._lock_attempt_row(cur, attempt_id=attempt_id,
+                                     tenant_id=tenant_id, job_id=job_id)
+        if att is None:
+            raise JobsError("terminalize: attempt not found for job")
+        ev: Dict[str, Any] = {
+            "job_status": job["status"],
+            "attempt_status": att["status"],
+            "publication_state": att["publication_state"],
+            "execution_generation": int(att["execution_generation"]),
+            "expected_generation": int(expected_execution_generation),
+            "expected_publication_state": expected_publication_state,
+            "attempt_no": int(att["attempt_no"]),
+        }
+        # Dry-run must fail closed on the same core preconditions as
+        # apply (Spec 033 §8): never emit a fingerprint for an
+        # ineligible generation.
+        if job["status"] != JobStatus.DISPATCH_UNKNOWN.value:
+            raise JobsError("terminalize: job is not dispatch_unknown")
+        if att["status"] != AttemptStatus.QUEUED.value:
+            raise JobsError("terminalize: attempt is not queued")
+        if att["publication_state"] != expected_publication_state:
+            raise JobsError(
+                "terminalize: publication state mismatch")
+        if int(att["execution_generation"]) != int(
+                expected_execution_generation):
+            raise JobsError("terminalize: generation mismatch")
+        cur.execute(
+            "SELECT count(*) AS n FROM jobs.job_attempts "
+            "WHERE job_id = %s AND tenant_id = %s AND status = 'running'",
+            (job_id, tenant_id))
+        ev["running_attempts"] = int(cur.fetchone()["n"])
+        cur.execute(
+            "SELECT count(*) AS n FROM jobs.job_attempts "
+            "WHERE job_id = %s AND tenant_id = %s "
+            "AND (attempt_no > %s OR execution_generation > %s)",
+            (job_id, tenant_id, att["attempt_no"],
+             int(expected_execution_generation)))
+        ev["later_attempts"] = int(cur.fetchone()["n"])
+        cur.execute(
+            "SELECT count(*) AS n FROM jobs.job_attempts "
+            "WHERE job_id = %s AND tenant_id = %s AND status = 'queued'",
+            (job_id, tenant_id))
+        ev["queued_attempts"] = int(cur.fetchone()["n"])
+        ev["cancel_requested"] = bool(job["cancel_requested_at"])
+        # durable no-effect evidence (authoritative PostgreSQL)
+        cur.execute(
+            "SELECT count(*) AS n FROM knowledge.version_chunks vc "
+            "JOIN knowledge.ingestions i "
+            "ON i.target_version_id = vc.version_id "
+            "WHERE i.job_id = %s AND i.tenant_id = %s",
+            (job_id, tenant_id))
+        ev["chunks"] = int(cur.fetchone()["n"])
+        cur.execute(
+            "SELECT count(*) AS n FROM knowledge.qdrant_operations qo "
+            "JOIN knowledge.ingestions i "
+            "ON i.ingestion_id = qo.ingestion_id "
+            "WHERE i.job_id = %s AND i.tenant_id = %s",
+            (job_id, tenant_id))
+        ev["qdrant_operations"] = int(cur.fetchone()["n"])
+        cur.execute(
+            "SELECT i.target_version_id, i.sync_state, "
+            "v.status AS version_status, d.current_version_id, "
+            "d.document_id "
+            "FROM knowledge.ingestions i "
+            "JOIN knowledge.document_versions v "
+            "ON v.version_id = i.target_version_id "
+            "JOIN knowledge.documents d ON d.document_id = i.document_id "
+            "WHERE i.job_id = %s AND i.tenant_id = %s",
+            (job_id, tenant_id))
+        rows = cur.fetchall()
+        ev["ingestions"] = len(rows)
+        ev["ingestion_states"] = sorted({r["sync_state"] for r in rows})
+        ev["version_statuses"] = sorted({r["version_status"] for r in rows})
+        ev["target_is_current"] = any(
+            r["current_version_id"] == r["target_version_id"] for r in rows)
+        ev["current_version_present"] = all(
+            r["current_version_id"] is not None for r in rows)
+        return ev
+
+    def terminalize_no_effect_dispatch_unknown_generation(
+            self, *, tenant_id: str, job_id: str, attempt_id: str,
+            expected_execution_generation: int,
+            expected_publication_state: str = "unknown",
+            reason: str, evidence_fingerprint: str,
+    ) -> Dict[str, Any]:
+        """Spec 033 / ADR-038 Option 2: atomically terminalize ONE
+        proven no-effect ``dispatch_unknown`` generation using only
+        accepted transitions: attempt ``QUEUED -> LOST``; job
+        ``DISPATCH_UNKNOWN -> MANUAL_REVIEW -> FAILED``.
+
+        Job-scoped, fail-closed, idempotent, bounded; never touches
+        ingestion/version/Qdrant.  Returns a bounded result dict.
+        """
+        tenant_id = validate_tenant_id(tenant_id)
+        if reason != self.TERMINALIZE_REASON:
+            raise JobsError("terminalize: unsupported reason")
+        with self._transaction(tenant_id) as cur:
+            job = self._lock_job_row(cur, job_id=job_id,
+                                     tenant_id=tenant_id)
+            if job is None:
+                raise JobsError("terminalize: job not found in tenant scope")
+            # idempotent replay / conflict detection (audited)
+            cur.execute(
+                "SELECT detail FROM jobs.job_events WHERE job_id = %s "
+                "AND event_type = %s ORDER BY created_at DESC LIMIT 1",
+                (job_id, EventType.OPERATOR_RESOLUTION.value))
+            prior = cur.fetchone()
+            prior_fp = None
+            if prior is not None:
+                prior_fp = (prior["detail"] or {}).get("evidence_fingerprint")
+            if job["status"] == JobStatus.FAILED.value:
+                if prior_fp == evidence_fingerprint:
+                    return {"outcome": "idempotent_replay",
+                            "job_status": "failed",
+                            "evidence_fingerprint": evidence_fingerprint}
+                raise JobsError(
+                    "terminalize: job already terminal with conflicting "
+                    "evidence")
+            if job["status"] != JobStatus.DISPATCH_UNKNOWN.value:
+                raise JobsError(
+                    "terminalize: job is not dispatch_unknown")
+            ev = self._no_effect_evidence(
+                cur, tenant_id=tenant_id, job_id=job_id,
+                attempt_id=attempt_id,
+                expected_execution_generation=expected_execution_generation,
+                expected_publication_state=expected_publication_state)
+            computed = self._evidence_fingerprint(ev)
+            if computed != evidence_fingerprint:
+                raise JobsError(
+                    "terminalize: evidence fingerprint mismatch (stale)")
+            violations = []
+            if ev["attempt_status"] != AttemptStatus.QUEUED.value:
+                violations.append("attempt_not_queued")
+            if ev["publication_state"] != expected_publication_state:
+                violations.append("publication_state_mismatch")
+            if ev["execution_generation"] != int(
+                    expected_execution_generation):
+                violations.append("generation_mismatch")
+            if ev["running_attempts"] != 0:
+                violations.append("running_attempt_exists")
+            if ev["later_attempts"] != 0:
+                violations.append("later_attempt_exists")
+            if ev["queued_attempts"] != 1:
+                violations.append("queued_attempt_count")
+            if ev["cancel_requested"]:
+                violations.append("cancellation_pending")
+            if ev["chunks"] != 0:
+                violations.append("chunks_exist")
+            if ev["qdrant_operations"] != 0:
+                violations.append("qdrant_operations_exist")
+            if ev["target_is_current"]:
+                violations.append("target_is_current")
+            if not ev["current_version_present"]:
+                violations.append("no_known_good_current_version")
+            if any(s != "failed" for s in ev["ingestion_states"]):
+                violations.append("ingestion_not_failed")
+            if any(s != "staging" for s in ev["version_statuses"]):
+                violations.append("version_not_staging")
+            if violations:
+                raise JobsError(
+                    "terminalize: precondition violations: "
+                    + ",".join(violations))
+            # accepted legal transitions only
+            assert_attempt_transition_allowed(AttemptStatus.QUEUED,
+                                              AttemptStatus.LOST)
+            assert_transition_allowed(JobStatus.DISPATCH_UNKNOWN,
+                                      JobStatus.MANUAL_REVIEW)
+            assert_transition_allowed(JobStatus.MANUAL_REVIEW,
+                                      JobStatus.FAILED)
+            cur.execute(
+                "UPDATE jobs.job_attempts SET status = 'lost', "
+                "finished_at = now(), updated_at = now(), "
+                "error_code = %s, error_summary = %s "
+                "WHERE id = %s AND tenant_id = %s AND status = 'queued'",
+                (self.TERMINALIZE_REASON[:64], self.TERMINALIZE_REASON,
+                 attempt_id, tenant_id))
+            if cur.rowcount != 1:
+                raise JobsError("terminalize: attempt transition refused")
+            self._record_event(
+                cur, job_id=job_id, tenant_id=tenant_id,
+                event_type=EventType.ATTEMPT_LOST,
+                actor=EventActor.OPERATOR, from_status=None,
+                to_status=None, attempt_id=attempt_id,
+                detail={"reason": reason,
+                        "evidence_fingerprint": evidence_fingerprint,
+                        "from": "queued", "to": "lost"})
+            cur.execute(
+                "UPDATE jobs.jobs SET status = 'manual_review', "
+                "updated_at = now() WHERE id = %s AND tenant_id = %s "
+                "AND status = 'dispatch_unknown'", (job_id, tenant_id))
+            if cur.rowcount != 1:
+                raise JobsError("terminalize: T9 transition refused")
+            self._record_event(
+                cur, job_id=job_id, tenant_id=tenant_id,
+                event_type=EventType.OPERATOR_RESOLUTION,
+                actor=EventActor.OPERATOR,
+                from_status=JobStatus.DISPATCH_UNKNOWN,
+                to_status=JobStatus.MANUAL_REVIEW,
+                detail={"reason": reason, "step": "T9",
+                        "evidence_fingerprint": evidence_fingerprint})
+            cur.execute(
+                "UPDATE jobs.jobs SET status = 'failed', "
+                "finished_at = COALESCE(finished_at, now()), "
+                "purge_after = now() + "
+                + _retention_interval_sql("failed")
+                + ", updated_at = now() WHERE id = %s AND tenant_id = %s "
+                "AND status = 'manual_review'", (job_id, tenant_id))
+            if cur.rowcount != 1:
+                raise JobsError("terminalize: T22 transition refused")
+            self._record_event(
+                cur, job_id=job_id, tenant_id=tenant_id,
+                event_type=EventType.OPERATOR_RESOLUTION,
+                actor=EventActor.OPERATOR,
+                from_status=JobStatus.MANUAL_REVIEW,
+                to_status=JobStatus.FAILED,
+                detail={"reason": reason, "step": "T22",
+                        "evidence_fingerprint": evidence_fingerprint,
+                        "observed": ev})
+            return {"outcome": "terminalized",
+                    "job_status": "failed",
+                    "attempt_status": "lost",
+                    "evidence_fingerprint": evidence_fingerprint}
 
     # -- privileged retention purge (cleanup; migrator connection) --------------
 

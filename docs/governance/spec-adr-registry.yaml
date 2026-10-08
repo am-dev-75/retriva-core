@@ -415,6 +415,21 @@ specifications:
       product or configuration change; owner acceptance REQUIRED before
       implementation (Constitution §42, §43)
 
+  - number: "033"
+    title: Incident-specific no-effect dispatch-unknown terminalization
+    repository: retriva-core
+    path: specs/033-incident-terminalization
+    status: accepted
+    allocated: "2026-10-08"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      records that the owner-required dispositions (attempt FAILED, job FAILED
+      from dispatch_unknown) are not legal in the accepted state machine and
+      therefore require either new governed transitions (Option 1) or an
+      implementation via existing legal transitions with a privileged
+      job-scoped operator command (Option 2, recommended); no migration; owner
+      acceptance REQUIRED before implementation
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -833,3 +848,16 @@ adrs:
       accepted; supersedes the prompt-redelivery assumption in
       DETERMINATION-orphaned-running-recovery.md; no migration; owner
       acceptance REQUIRED before implementation (Constitution §42, §43)
+
+  - number: "038"
+    title: Incident-specific no-effect dispatch-unknown terminalization
+    repository: retriva-core
+    path: docs/adr/adr-038-incident-terminalization.md
+    status: accepted
+    allocated: "2026-10-08"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      records the state-machine gap (no QUEUED->FAILED, no
+      DISPATCH_UNKNOWN->FAILED) and the owner choice between extending the
+      accepted transitions or using the legal LOST/T9/T22 route with a
+      privileged operator command; no migration; owner acceptance REQUIRED

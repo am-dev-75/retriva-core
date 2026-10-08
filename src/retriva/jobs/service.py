@@ -411,6 +411,51 @@ class JobsService:
             tenant_id=tenant_id, job_id=job_id)
 
 
+    # -- incident-specific terminalization (Spec 033 / ADR-038) ---------------
+
+    TERMINALIZE_REASON = (
+        "operator_fail_clean_pre_fix_ambiguous_generation_no_effects")
+
+    def terminalize_no_effect_dispatch_unknown_generation(
+            self, *, tenant_id: str, job_id: str, attempt_id: str,
+            expected_execution_generation: int,
+            expected_publication_state: str = "unknown",
+            reason: str, actor: str = "operator",
+            evidence_fingerprint: Optional[str] = None,
+            dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """Private operator path (Spec 033): dry-run computes the
+        durable no-effect evidence fingerprint; apply consumes it and
+        terminalizes exactly ONE dispatch_unknown generation using the
+        accepted legal transitions (attempt QUEUED->LOST; job
+        DISPATCH_UNKNOWN->MANUAL_REVIEW->FAILED).  Job-scoped; never a
+        global sweep."""
+        from retriva.infrastructure.postgres.tenant import (
+            validate_tenant_id,
+        )
+        tenant_id = validate_tenant_id(tenant_id)
+        if reason != self.TERMINALIZE_REASON:
+            raise JobsError("terminalize: unsupported reason")
+        if dry_run:
+            ev = self.repo.no_effect_evidence(
+                tenant_id=tenant_id, job_id=job_id, attempt_id=attempt_id,
+                expected_execution_generation=expected_execution_generation,
+                expected_publication_state=expected_publication_state)
+            return {"outcome": "dry_run", "evidence": ev,
+                    "evidence_fingerprint":
+                        self.repo._evidence_fingerprint(ev)}
+        if not evidence_fingerprint:
+            raise JobsError(
+                "terminalize: apply requires the dry-run evidence "
+                "fingerprint")
+        return self.repo.terminalize_no_effect_dispatch_unknown_generation(
+            tenant_id=tenant_id, job_id=job_id, attempt_id=attempt_id,
+            expected_execution_generation=expected_execution_generation,
+            expected_publication_state=expected_publication_state,
+            reason=self.TERMINALIZE_REASON,
+            evidence_fingerprint=evidence_fingerprint)
+
+
 def retry_backoff_for(attempt_no: int) -> float:
     """Existing exponential parity, capped (durable scheduling)."""
     return float(min(2 ** max(attempt_no - 1, 0), 600))
