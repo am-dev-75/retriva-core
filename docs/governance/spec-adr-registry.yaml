@@ -465,6 +465,22 @@ specifications:
       validation, and a separate live deployment prompt); no dashboard; no
       migration; no application or Redis ACL change; ACCEPTED by the owner
       on 2026-10-09 (explicit owner decisions recorded in the task brief)
+
+  - number: "036"
+    title: RLS-safe PostgreSQL monitoring aggregate interface
+    repository: retriva-core
+    path: specs/036-monitoring-rls-aggregate-interface
+    status: proposed
+    allocated: "2026-10-09"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      corrects the Spec 035 PostgreSQL gauge defect exposed by the rolled-back
+      live deployment (forced RLS on jobs.jobs makes the direct-count source
+      structurally zero): proposes a migration-managed, aggregate-only
+      SECURITY DEFINER function owned by a dedicated non-login role, with
+      CONNECT/USAGE/EXECUTE-only monitoring grants and no BYPASSRLS or direct
+      table access; upon ACCEPTANCE amends only the PostgreSQL-access clauses
+      of Spec 035 and ADR-040; no implementation authorized while PROPOSED
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -930,3 +946,20 @@ adrs:
       OA-1/OA-3 ownership questions and does not reopen ADR-039 or any earlier
       decision; ACCEPTED by the owner 2026-10-09 (explicit owner decisions
       recorded in the task brief)
+
+  - number: "041"
+    title: PostgreSQL monitoring aggregate interface under FORCE RLS
+    repository: retriva-core
+    path: docs/adr/adr-041-monitoring-rls-aggregate-interface.md
+    status: proposed
+    allocated: "2026-10-09"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      records the decision that the monitoring gauge is sourced through a
+      migration-managed, aggregate-only SECURITY DEFINER interface
+      (jobs.monitoring_nonterminal_job_count) owned by a dedicated non-login
+      role, granted EXECUTE-only to the monitoring login role, preserving
+      forced RLS and denying BYPASSRLS, direct table access, and tenant
+      enumeration; amends only the PostgreSQL-access sentence of ADR-040
+      Decision 3 upon ACCEPTANCE; companion to Spec 036; no implementation
+      authorized while PROPOSED
