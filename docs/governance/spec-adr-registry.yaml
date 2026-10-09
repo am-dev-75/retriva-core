@@ -446,6 +446,25 @@ specifications:
       validation, and a separate deployment gate; no migration; ACCEPTED by
       owner 2026-10-08 (recommended control set accepted)
 
+  - number: "035"
+    title: Canonical monitoring stack for Redis security alerting
+    repository: retriva-core
+    path: specs/035-canonical-monitoring-stack
+    status: accepted
+    allocated: "2026-10-09"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      establishes the canonical monitoring stack that closes the Spec 034
+      OPEN_MONITORING_GAP: ownership assigned to
+      retriva-local-containerized-deployment (monitoring Compose profile,
+      Prometheus-compatible collection and rule evaluation pinned to
+      prom/prometheus:v3.15.0, Alertmanager-compatible routing pinned to
+      prom/alertmanager:v0.34.1, read-only rtrv-monitor Redis exporter,
+      read-only PostgreSQL non-terminal durable-job gauge, the nine validated
+      Redis alert rules plus self-monitoring, runbooks, isolated end-to-end
+      validation, and a separate live deployment prompt); no dashboard; no
+      migration; no application or Redis ACL change; ACCEPTED by the owner
+      on 2026-10-09 (explicit owner decisions recorded in the task brief)
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -892,3 +911,22 @@ adrs:
       exposure, and ACL persistence after the recorded FLUSHALL deviation;
       no migration; ACCEPTED by owner 2026-10-08 (recommended control set
       accepted)
+
+  - number: "040"
+    title: Canonical monitoring-stack ownership and platform baseline
+    repository: retriva-core
+    path: docs/adr/adr-040-canonical-monitoring-stack.md
+    status: accepted
+    allocated: "2026-10-09"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      records the significant ownership and platform decision that the local
+      containerized deployment repository owns the monitoring stack
+      (collection, rule loading, routing interfaces, read-only Redis and
+      PostgreSQL collectors, health checks, runbooks, deployment/rollback),
+      with Prometheus v3.15.0 / Alertmanager v0.34.1 as the pinned baseline,
+      a read-only least-privilege access model, and a production boundary that
+      keeps live activation behind a separate deployment prompt; closes
+      OA-1/OA-3 ownership questions and does not reopen ADR-039 or any earlier
+      decision; ACCEPTED by the owner 2026-10-09 (explicit owner decisions
+      recorded in the task brief)
