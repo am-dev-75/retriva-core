@@ -1,7 +1,7 @@
 # Spec 036 — Plan (PROPOSED)
 
-Status: PROPOSED. Implementation is not authorized until Spec 036 and ADR-041
-are `ACCEPTED` (Constitution §§42–44).
+Status: ACCEPTED (2026-10-09). Implementation proceeds through the phase
+gates below (Constitution §§42–44).
 
 ## Phase 0 — Governance (this proposal)
 

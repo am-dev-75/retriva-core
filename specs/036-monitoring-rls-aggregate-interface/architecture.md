@@ -1,6 +1,6 @@
 # Spec 036 — Architecture (PROPOSED)
 
-Companion to `spec.md` and ADR-041. Status: PROPOSED.
+Companion to `spec.md` and ADR-041. Status: ACCEPTED (2026-10-09).
 
 ## 1. Where the interface sits
 

@@ -1,6 +1,6 @@
 # Spec 036 — Acceptance (PROPOSED)
 
-Status: PROPOSED. Every gate must pass after acceptance; SUCCESS is not
+Status: ACCEPTED (2026-10-09). Every gate must pass; SUCCESS is not
 declared while any gate is open (Constitution §§37–40).
 
 ## A. Governance

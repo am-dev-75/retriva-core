@@ -284,7 +284,7 @@ def pg_jobs_db(pg_platform_stack):
     assert [a["version"] for a in
             result[CORE_PLATFORM_STREAM][0]["applied"]] == [1]
     assert [a["version"] for a in
-            result["core.jobs"][0]["applied"]] == [1]
+            result["core.jobs"][0]["applied"]] == [1, 2]
     return SimpleNamespace(settings=settings)
 
 @pytest.fixture(autouse=True)

@@ -1,7 +1,7 @@
 # ADR-041 (PROPOSED) — PostgreSQL monitoring aggregate interface under FORCE RLS
 
-Status: **PROPOSED** (owner decision required; companion to Spec 036).
-Date: 2026-10-09. Core baseline `90f7369e930bd0155836c2106f853a0e2a562d71`;
+Status: **ACCEPTED** (owner decision 2026-10-09; companion to Spec 036).
+Date: 2026-10-09 (proposed); 2026-10-09 (accepted). Core baseline `90f7369e930bd0155836c2106f853a0e2a562d71`;
 deployment baseline `aa37eb4f1bfcd2eface88d77eb7bf5f556ca19f3`.
 
 ## Context

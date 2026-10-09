@@ -1,6 +1,6 @@
 # Spec 036 — Tasks (PROPOSED)
 
-Status: PROPOSED. Tasks are executed only after acceptance.
+Status: ACCEPTED (2026-10-09). Tasks execute through the phase gates.
 
 ## T1 — Registry and governance
 

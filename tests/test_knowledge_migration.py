@@ -74,7 +74,7 @@ def knowledge_db(pg_platform_stack):
     result = framework_upgrade(registry, settings)
     assert [a["version"]
             for a in result[CORE_PLATFORM_STREAM][0]["applied"]] == [1]
-    assert [a["version"] for a in result["core.jobs"][0]["applied"]] == [1]
+    assert [a["version"] for a in result["core.jobs"][0]["applied"]] == [1, 2]
     assert [a["version"] for a in result[KNOWLEDGE_STREAM_ID][0]["applied"]] \
         == [1]
     return types.SimpleNamespace(settings=settings, registry=registry,

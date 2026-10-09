@@ -40,6 +40,16 @@ _log = get_logger(__name__)
 #: Non-elevated posture enforced on every managed role.
 _ROLE_FLAGS = "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION"
 
+#: Dedicated non-login owner of the monitoring aggregate interface
+#: (Spec 036 / ADR-041).  It owns only its dedicated `monitoring`
+#: schema and the aggregate function; it can never log in and holds
+#: no elevated, write, DDL-on-application-schemas, or RLS-bypass
+#: capability.
+MONITOR_OWNER_ROLE = "retriva_monitor_owner"
+
+_MONITOR_OWNER_FLAGS = ("NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                        "NOREPLICATION NOBYPASSRLS")
+
 
 @dataclass(frozen=True)
 class RoleSpec:
@@ -130,6 +140,46 @@ def provision_roles(conn, specs: List[RoleSpec]) -> Dict[str, List[str]]:
             "unchanged": unchanged}
 
 
+def provision_monitor_owner(conn, migrator_role: str,
+                            role_name: str = MONITOR_OWNER_ROLE) -> str:
+    """Provision the dedicated non-login owner role of the monitoring
+    aggregate interface (Spec 036 / ADR-041).  Idempotent: a missing
+    role is created with the exact non-elevated NOLOGIN posture; an
+    existing role is accepted only when its posture matches exactly
+    (never silently redefined, never managed when divergent); the
+    membership that lets the migrator ``SET ROLE`` into it (required
+    to create the interface objects it owns) is granted idempotently.
+    Runs on an autocommit cluster-admin connection.  Returns
+    ``"created"`` or ``"existing"``; never returns or logs
+    credentials (this role has none)."""
+    exists = _role_exists(conn, role_name)
+    if exists:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT rolcanlogin, rolsuper, rolcreaterole, "
+                "rolcreatedb, rolreplication, rolbypassrls "
+                "FROM pg_roles WHERE rolname = %s", (role_name,))
+            row = cur.fetchone()
+        if tuple(bool(value) for value in row) != (False,) * 6:
+            raise RuntimeError(
+                f"role '{role_name}' already exists with a divergent "
+                "posture (expected NOLOGIN NOSUPERUSER NOCREATEDB "
+                "NOCREATEROLE NOREPLICATION NOBYPASSRLS); refusing to "
+                "manage it")
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("CREATE ROLE {} " + _MONITOR_OWNER_FLAGS).format(
+                    sql.Identifier(role_name)))
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL("GRANT {} TO {}").format(
+                sql.Identifier(role_name), sql.Identifier(migrator_role)))
+    _log.info("monitoring owner role provisioned: role=%s state=%s",
+              role_name, "existing" if exists else "created")
+    return "existing" if exists else "created"
+
+
 def restrict_database_create(conn, database: str,
                              migrator_role: str) -> None:
     """Only the migrator may create schemas in the application
@@ -178,6 +228,8 @@ def bootstrap_platform(settings) -> Dict:
     conn = _connect_admin(settings.connection_kwargs("admin"))
     try:
         summary = provision_roles(conn, specs)
+        summary["monitor_owner"] = provision_monitor_owner(
+            conn, settings.migrator_user)
         restrict_database_create(
             conn, settings.database, settings.migrator_user)
     finally:

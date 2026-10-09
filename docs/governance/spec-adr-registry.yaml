@@ -470,7 +470,7 @@ specifications:
     title: RLS-safe PostgreSQL monitoring aggregate interface
     repository: retriva-core
     path: specs/036-monitoring-rls-aggregate-interface
-    status: proposed
+    status: accepted
     allocated: "2026-10-09"
     notes: >-
       allocated per Constitution §43 before first presentation as PROPOSED;
@@ -480,7 +480,9 @@ specifications:
       SECURITY DEFINER function owned by a dedicated non-login role, with
       CONNECT/USAGE/EXECUTE-only monitoring grants and no BYPASSRLS or direct
       table access; upon ACCEPTANCE amends only the PostgreSQL-access clauses
-      of Spec 035 and ADR-040; no implementation authorized while PROPOSED
+      of Spec 035 and ADR-040; ACCEPTED by the owner on 2026-10-09 through the
+      same review class as Specs 034/035 (implementation authorized, live
+      deployment separately gated)
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -951,7 +953,7 @@ adrs:
     title: PostgreSQL monitoring aggregate interface under FORCE RLS
     repository: retriva-core
     path: docs/adr/adr-041-monitoring-rls-aggregate-interface.md
-    status: proposed
+    status: accepted
     allocated: "2026-10-09"
     notes: >-
       allocated per Constitution §43 before first presentation as PROPOSED;
@@ -961,5 +963,6 @@ adrs:
       role, granted EXECUTE-only to the monitoring login role, preserving
       forced RLS and denying BYPASSRLS, direct table access, and tenant
       enumeration; amends only the PostgreSQL-access sentence of ADR-040
-      Decision 3 upon ACCEPTANCE; companion to Spec 036; no implementation
-      authorized while PROPOSED
+      Decision 3 upon ACCEPTANCE; companion to Spec 036; ACCEPTED by the
+      owner on 2026-10-09 (bounded implementation authorized, live deployment
+      separately gated)

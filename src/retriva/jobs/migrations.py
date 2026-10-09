@@ -42,13 +42,16 @@ JOBS_SQL_DIR = Path(__file__).resolve().parent / "sql"
 
 def jobs_provider() -> SqlMigrationProvider:
     """The Core durable-jobs provider: the ``core.jobs`` stream
-    (schema adoption, job tables, RLS, grants, append-only events)."""
+    (schema adoption, job tables, RLS, grants, append-only events,
+    and the Spec 036 / ADR-041 RLS-safe monitoring aggregate
+    interface)."""
     return SqlMigrationProvider(
         provider_id=JOBS_PROVIDER_ID,
         stream_id=JOBS_STREAM_ID,
         sql_dir=JOBS_SQL_DIR,
         dependencies=("core.platform",),
-        required_roles=("retriva_migrator", "retriva_core"),
+        required_roles=("retriva_migrator", "retriva_core",
+                        "retriva_monitor_owner"),
     )
 
 

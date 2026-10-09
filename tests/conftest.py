@@ -338,7 +338,7 @@ def durable_jobs_database(pg_platform_stack):
     assert [a["version"] for a in
             result[CORE_PLATFORM_STREAM][0]["applied"]] == [1]
     assert [a["version"] for a in
-            result["core.jobs"][0]["applied"]] == [1]
+            result["core.jobs"][0]["applied"]] == [1, 2]
     return settings
 
 
@@ -391,7 +391,7 @@ def knowledge_database(pg_platform_stack):
     result = framework_upgrade(registry, settings)
     assert [a["version"]
             for a in result[CORE_PLATFORM_STREAM][0]["applied"]] == [1]
-    assert [a["version"] for a in result["core.jobs"][0]["applied"]] == [1]
+    assert [a["version"] for a in result["core.jobs"][0]["applied"]] == [1, 2]
     assert [a["version"]
             for a in result[KNOWLEDGE_STREAM_ID][0]["applied"]] == [1]
     return settings

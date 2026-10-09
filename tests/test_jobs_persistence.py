@@ -89,7 +89,7 @@ def jobs_db(pg_platform_stack):
     result = framework_upgrade(registry, settings)
     assert [a["version"] for a in result[CORE_PLATFORM_STREAM][0]["applied"]] == [1]
     jobs_result = result["core.jobs"][0]
-    assert [a["version"] for a in jobs_result["applied"]] == [1]
+    assert [a["version"] for a in jobs_result["applied"]] == [1, 2]
     return SimpleNamespace(
         settings=settings, stack=pg_platform_stack,
         registry=registry)

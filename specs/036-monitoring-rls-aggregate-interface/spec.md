@@ -1,8 +1,9 @@
 # Spec 036 (PROPOSED) — RLS-safe PostgreSQL monitoring aggregate interface
 
-Status: **PROPOSED** (awaiting owner decision; implementation is NOT authorized
-until this pack and ADR-041 are `ACCEPTED`).
-Date: 2026-10-09.
+Status: **ACCEPTED** (owner decision 2026-10-09, recorded through the same
+review class as Specs 034/035; bounded implementation authorized by the task
+brief; live deployment remains separately authorized).
+Date: 2026-10-09 (proposed); 2026-10-09 (accepted).
 Bases: Core `90f7369e930bd0155836c2106f853a0e2a562d71`; deployment
 `aa37eb4f1bfcd2eface88d77eb7bf5f556ca19f3`.
 Governing: `retriva-core/.agent/rules/retriva-constitution.md` (v1.2, sections
@@ -80,12 +81,15 @@ Out of scope:
   beyond those already in the metric contract (any future aggregate must
   follow this same interface pattern through a governed change).
 
-## 3. Owner decision requested
+## 3. Owner decision (recorded)
 
-Acceptance of this pack and ADR-041 authorizes the bounded implementation of
-the aggregate-only `SECURITY DEFINER` interface described in §5 under all the
-constraints of §6, with no broadening of monitoring privileges beyond
-`CONNECT` + `USAGE` + `EXECUTE`.
+The owner accepted this pack and ADR-041 on 2026-10-09 through the same
+review class used for Specs 034/035, authorizing the bounded implementation
+of the aggregate-only `SECURITY DEFINER` interface described in §5 under all
+the constraints of §6, with no broadening of monitoring privileges beyond
+`CONNECT` + `USAGE` + `EXECUTE`. This decision supersedes the direct-`SELECT`
+monitoring design in Spec 035 only for the accepted aggregate metric
+interface; forced RLS remains mandatory on the underlying tables.
 
 ## 4. Root cause summary
 
@@ -271,8 +275,10 @@ not applied): the same fail-closed path (permission denied), never a false
 
 ## 10. Production boundary
 
-This pack authorizes no live change. Until `ACCEPTED` and implemented, the
-live monitoring deployment remains rolled back and the Spec 034 monitoring
-gap remains `OPEN_MONITORING_GAP`. The v2 live deployment prompt is
-executable only after owner acceptance and after a bounded implementation
-task commits the migration and the collector switch.
+Implementation (migration, bootstrap provisioning, collector switch, tests)
+is authorized by the 2026-10-09 acceptance. No live production change is
+authorized by this pack: the live monitoring deployment and the live
+migration execution remain behind a separate, explicitly authorized
+deployment task and the superseding live-deployment prompt. Until that live
+activation passes, the Spec 034 monitoring gap remains
+`OPEN_MONITORING_GAP`.
