@@ -13,5 +13,16 @@
 # limitations under the License.
 
 from retriva.logger.logger import setup_logging, get_logger
+from retriva.logger.redaction import (
+    REDACTED_URL_MARKER,
+    redact_url,
+    redact_urls_in_text,
+)
 
-__all__ = ["setup_logging", "get_logger"]
+__all__ = [
+    "setup_logging",
+    "get_logger",
+    "REDACTED_URL_MARKER",
+    "redact_url",
+    "redact_urls_in_text",
+]

@@ -33,6 +33,7 @@ from uuid import uuid4
 
 from retriva.graph.contracts import GraphChangeEvent, GraphEventType
 from retriva.logger import get_logger
+from retriva.logger.redaction import redact_url, redact_urls_in_text
 
 logger = get_logger(__name__)
 
@@ -93,7 +94,9 @@ class GraphEventBus:
                 handler(event)
             except Exception as e:
                 logger.error(
-                    f"GraphEventBus: handler error for '{event.event_type}': {e}",
+                    "GraphEventBus: handler error for '%s': %s",
+                    event.event_type,
+                    redact_urls_in_text(str(e)),
                     exc_info=True,
                 )
 
@@ -102,13 +105,19 @@ class GraphEventBus:
             try:
                 self._redis_adapter.publish(event)
             except Exception as e:
-                logger.warning(f"GraphEventBus: Redis publish failed: {e}")
+                logger.warning(
+                    "GraphEventBus: Redis publish failed: %s",
+                    redact_urls_in_text(str(e)),
+                )
 
     def init_redis(self, redis_url: str) -> None:
         """Initialize the Redis adapter for cross-process event publishing."""
         if self._redis_adapter is None:
             self._redis_adapter = _RedisAdapter(redis_url)
-            logger.info(f"GraphEventBus: Redis adapter initialized ({redis_url})")
+            logger.info(
+                "GraphEventBus: Redis adapter initialized (%s)",
+                redact_url(redis_url),
+            )
 
     @classmethod
     def _reset(cls) -> None:
@@ -136,7 +145,10 @@ class _RedisAdapter:
                 "cross-process events disabled"
             )
         except Exception as e:
-            logger.warning(f"GraphEventBus: Redis connection failed: {e}")
+            logger.warning(
+                "GraphEventBus: Redis connection failed: %s",
+                redact_urls_in_text(str(e)),
+            )
             self._client = None
 
     def publish(self, event: GraphChangeEvent) -> None:

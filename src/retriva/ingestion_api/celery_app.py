@@ -29,6 +29,7 @@ from typing import Optional
 
 from retriva.config import settings
 from retriva.logger import get_logger
+from retriva.logger.redaction import redact_url
 
 logger = get_logger(__name__)
 
@@ -179,5 +180,12 @@ def get_celery_app():
         Logging.setup_handlers = _patched_setup_handlers
 
     _celery_app = app
-    logger.info(f"Celery app created: broker={broker}, backend={backend}")
+    # Log only redacted locations: broker/back-end URLs may carry per-role
+    # credentials (Spec 034 §7 / Constitution §34).  The arguments are
+    # redacted before the logging call so no raw value is ever stringified.
+    logger.info(
+        "Celery app created: broker=%s, backend=%s",
+        redact_url(broker),
+        redact_url(backend),
+    )
     return app

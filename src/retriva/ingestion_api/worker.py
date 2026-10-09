@@ -25,6 +25,7 @@ import sys
 
 from retriva.config import settings
 from retriva.logger import setup_logging, get_logger
+from retriva.logger.redaction import redact_url
 
 logger = get_logger(__name__)
 
@@ -47,12 +48,18 @@ def main():
     from retriva.ingestion_api.tasks import _register_tasks
     _register_tasks(app)
 
-    print(f"##### Retriva Ingestion Worker #####")
-    print(f"  Broker URL:      {settings.celery_broker_url}")
-    print(f"  Result backend:  {settings.celery_result_backend or '(same as broker)'}")
-    print(f"  Concurrency:     {settings.celery_worker_concurrency}")
-    print(f"  Max retries:     {settings.celery_task_max_retries}")
-    print()
+    # Startup diagnostics are emitted through the project logger and never
+    # contain credential-bearing URLs (Spec 034 §7 / Constitution §34).
+    logger.info("##### Retriva Ingestion Worker #####")
+    logger.info("  Broker URL:      %s", redact_url(settings.celery_broker_url))
+    logger.info(
+        "  Result backend:  %s",
+        redact_url(settings.celery_result_backend)
+        if settings.celery_result_backend
+        else "(same as broker)",
+    )
+    logger.info("  Concurrency:     %s", settings.celery_worker_concurrency)
+    logger.info("  Max retries:     %s", settings.celery_task_max_retries)
 
     worker = app.Worker(
         loglevel="info",

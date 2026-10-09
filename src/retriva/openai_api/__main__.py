@@ -15,6 +15,7 @@
 import uvicorn
 import argparse
 from retriva.logger import setup_logging
+from retriva.logger.redaction import redact_url
 from retriva import config
 
 
@@ -38,7 +39,7 @@ def main():
     s = config.settings
     print("Active settings:")
     print(f"  Chat model:           {s.chat_model}")
-    print(f"  Chat base URL:        {s.chat_base_url}")
+    print(f"  Chat base URL:        {redact_url(s.chat_base_url)}")
     print(f"  Chat temperature:     {s.chat_temperature}")
     print(f"  Chat top_p:           {s.chat_top_p}")
     if s.chat_reasoning_effort:
@@ -51,7 +52,7 @@ def main():
         print(f"  Rerank model:         {s.retrieval_rerank_model}")
         if provider == "bedrock":
             print(f"  Rerank AWS region:    {s.retrieval_rerank_aws_region or '(AWS_REGION / AWS_DEFAULT_REGION)'}")
-    print(f"  Qdrant URL:           {s.qdrant_url}")
+    print(f"  Qdrant URL:           {redact_url(s.qdrant_url)}")
     print(f"  Qdrant Collection:    {s.retriva_default_collection}")
     print(f"  Embedding model:      {s.embedding_model}")
     print(f"  Embedding dimension:  {s.embedding_dimension}")

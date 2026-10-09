@@ -15,6 +15,7 @@
 import uvicorn
 import argparse
 from retriva.logger import setup_logging
+from retriva.logger.redaction import redact_url
 from retriva import config
 
 def main():
@@ -27,13 +28,13 @@ def main():
     
     s = config.settings
     print("Active settings:")
-    print(f"  Qdrant URL:           {s.qdrant_url}")
+    print(f"  Qdrant URL:           {redact_url(s.qdrant_url)}")
     print(f"  Qdrant Collection:    {s.retriva_default_collection}")
     print(f"  Storage path:         {s.storage_path}")
     print(f"  Primary parser:       {s.v2_primary_parser}")
     print(f"  Embedding model:      {s.embedding_model}")
     print(f"  Embedding dimension:  {s.embedding_dimension}")
-    print(f"  Embedding base URL:   {s.embedding_base_url}")
+    print(f"  Embedding base URL:   {redact_url(s.embedding_base_url)}")
     print(f"  Max chunk chars:      {s.max_chunk_chars}")
     print(f"  Chunk overlap:        {s.chunk_overlap}")
     print(f"  Indexing batch size:  {s.indexing_batch_size}")
