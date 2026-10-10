@@ -483,6 +483,30 @@ specifications:
       of Spec 035 and ADR-040; ACCEPTED by the owner on 2026-10-09 through the
       same review class as Specs 034/035 (implementation authorized, live
       deployment separately gated)
+
+  - number: "037"
+    title: Creditsafe financial-score enrichment and qualification gate
+    repository: retriva-crm-assistant
+    path: specs/037-creditsafe-financial-score-gate
+    status: accepted
+    allocated: "2026-10-10"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      proposes a provider-neutral Creditsafe financial-score provider,
+      documented-only [0,1] normalization from the Common Data Dictionary
+      providerValue min/max scale, append-only PostgreSQL score observations
+      with accepted-current state, a tenant-global audited threshold setting
+      (default 0.6, inclusive), a deterministic qualification gate that
+      prevents positive verdicts unless outcome=pass (unknown maps to
+      incomplete semantics, never zero), snapshot preservation in reports,
+      and secret-hygiene controls; companions: ADR-042; ACCEPTED by the
+      owner on 2026-10-10 after applying decisions D-1..D-10 and the
+      mandatory review corrections (no implementation-blocking decision
+      remains); Spec 023 ordering/dependency explicitly resolved: the gate
+      is independent of Spec 023 Phase 1 (no duplication, no blocking
+      prerequisite; convergence through the same pure gate function when
+      Spec 023 Phase 1 is later authorized); implementation not started
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -966,3 +990,26 @@ adrs:
       Decision 3 upon ACCEPTANCE; companion to Spec 036; ACCEPTED by the
       owner on 2026-10-09 (bounded implementation authorized, live deployment
       separately gated)
+
+  - number: "042"
+    title: Creditsafe financial-score provider and deterministic qualification gate
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-042-creditsafe-financial-score-provider-and-gate.md
+    status: accepted
+    allocated: "2026-10-10"
+    notes: >-
+      allocated per Constitution §43 before first presentation as PROPOSED;
+      records the decision to integrate Creditsafe behind a provider-neutral
+      FinancialRiskProvider, normalize only the documented providerValue
+      min/max scale (A-E and PoD never converted), persist append-only score
+      observations in PostgreSQL per ADR-029, enforce a tenant-global
+      threshold (default 0.6, inclusive) as a deterministic gate that blocks
+      positive verdicts on fail and incomplete semantics on unknown, snapshot
+      score/threshold/outcome in reports, and keep credentials/JWTs/raw
+      payloads out of all surfaces; companion to Spec 037; ACCEPTED by the
+      owner on 2026-10-10 with decisions D-1..D-10 applied (tenant-global
+      scope, existing-tier mapping with reason codes, tenant-scoped Connect
+      ID uniqueness, 90-day configurable freshness with stale-unknown,
+      legacy re-evaluation, sandbox-default environment safety, zero
+      default paid budget with per-category accounting, restricted
+      name-only search, review-console settings UI)
