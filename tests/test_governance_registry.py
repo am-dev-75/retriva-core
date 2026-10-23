@@ -253,6 +253,31 @@ class SpecAdrRegistryIntegrity(unittest.TestCase):
             (WORKSPACE / adr_032[0]["repository"]
              / adr_032[0]["path"]).exists())
 
+    def test_adr026_header_matches_registry(self):
+        """GF-002 closure regression: the crm-assistant ADR-026
+        artifact header status line must match its registry entry
+        (accepted).  GF-002 corrected a stale ``PROPOSED`` header on
+        2026-10-23 with no decision-content change.
+        """
+        entries = [
+            e for e in self.adrs
+            if e["repository"] == "retriva-crm-assistant"
+            and e["number"] == "026"
+        ]
+        self.assertEqual(len(entries), 1, entries)
+        entry = entries[0]
+        path = self._artifact_path(entry)
+        self.assertIsNotNone(path)
+        self.assertTrue(path.exists(), path)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        header = next(
+            (line for line in lines
+             if line.lower().startswith("- status:")), None)
+        self.assertIsNotNone(
+            header, f"no '- Status:' header line in {path}")
+        self.assertIn(entry["status"].upper(), header.upper())
+        self.assertNotIn("PROPOSED", header.upper())
+
 
 if __name__ == "__main__":
     unittest.main()
