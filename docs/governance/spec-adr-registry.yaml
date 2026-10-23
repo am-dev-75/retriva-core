@@ -507,6 +507,36 @@ specifications:
       prerequisite; convergence through the same pure gate function when
       Spec 023 Phase 1 is later authorized); implementation not started
 
+  - number: "038"
+    title: >-
+      Campaign governance — tenant grace period, global campaign
+      exclusions, and governed historical campaign import
+    repository: retriva-crm-assistant
+    path: specs/038-campaign-governance-grace-exclusions-history
+    status: accepted
+    allocated: "2026-10-22"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; defines the tenant-global campaign grace period as a
+      campaign-owned versioned artifact (ADDRESS_CONFIRMED trigger,
+      calendar-day duration, UTC-instant comparison, review/approve/
+      activate lifecycle, fail-closed until configured), one
+      authoritative deterministic company eligibility service with
+      typed reasons, whole-commit revalidation with per-company
+      advisory locks (D-11), mandatory tenant- and operation-scoped
+      commit idempotency with request fingerprints, the reuse and
+      extension of business.organization_exclusions with an explicit
+      ALL_CAMPAIGNS scope plus review/approve lifecycle, supersession,
+      and permissions, campaign code normalization (versioned routine)
+      and origin/lifecycle separation, conservative DATE_ONLY
+      latest-instant anchoring with derived anchors, and the governed
+      historical-campaign import completion (precision, unresolved-row
+      review, receipts, idempotency, amendments) through chat;
+      revision 3 (2026-10-23) records the owner decisions D-1…D-14 and
+      the owner corrections; companion ADR-043; ACCEPTED by the owner
+      on 2026-10-23 (Phase 1 authorized; Phases 2–6 not authorized
+      until each prior phase's delivery report is accepted)
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -1013,3 +1043,29 @@ adrs:
       legacy re-evaluation, sandbox-default environment safety, zero
       default paid budget with per-category accounting, restricted
       name-only search, review-console settings UI)
+
+  - number: "043"
+    title: >-
+      Campaign grace period, ALL_CAMPAIGNS exclusions, and governed
+      historical import
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-043-campaign-grace-global-exclusions-and-history.md
+    status: accepted
+    allocated: "2026-10-22"
+    notes: >-
+      allocated per Constitution §43 before first presentation as
+      PROPOSED; records the campaign-owned versioned grace-policy
+      decision (qualification.crm_settings rejected: no value history),
+      the ADDRESS_CONFIRMED-only grace trigger with inclusive expiry
+      boundary and fail-closed initialization, the EXACT/DATE_ONLY/
+      UNKNOWN precision classes with conservative latest-instant
+      DATE_ONLY anchoring, the reuse of business.organization_exclusions
+      with an additive ALL_CAMPAIGNS scope plus review/approve
+      lifecycle and supersession lineage, whole-commit revalidation
+      with per-organization advisory locks (D-11, superseding the
+      earlier partial-commit alternative), normative commit
+      idempotency, origin/lifecycle separation, import
+      timestamp-precision preservation, and safe-by-refusal V014
+      downgrade; revision 3 (2026-10-23) records the owner decisions
+      D-1…D-14; companion to Spec 038; ACCEPTED by the owner on
+      2026-10-23 (Phase 1 authorized; Phases 2–6 not authorized)
