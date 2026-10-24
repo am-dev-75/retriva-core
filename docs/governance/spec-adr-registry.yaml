@@ -535,7 +535,10 @@ specifications:
       revision 3 (2026-10-23) records the owner decisions D-1…D-14 and
       the owner corrections; companion ADR-043; ACCEPTED by the owner
       on 2026-10-23 (Phase 1 authorized; Phases 2–6 not authorized
-      until each prior phase's delivery report is accepted)
+      until each prior phase's delivery report is accepted).
+      Implementation and isolated deployed acceptance closed 2026-10-24;
+      Phases 1–6 accepted; production deployment/migration remain not
+      authorized and were not executed.
 
 adrs:
   - number: "001"
@@ -1068,4 +1071,6 @@ adrs:
       timestamp-precision preservation, and safe-by-refusal V014
       downgrade; revision 3 (2026-10-23) records the owner decisions
       D-1…D-14; companion to Spec 038; ACCEPTED by the owner on
-      2026-10-23 (Phase 1 authorized; Phases 2–6 not authorized)
+      2026-10-23 (Phase 1 authorized; Phases 2–6 not authorized).
+      Implementation closed 2026-10-24; ADR-043 is ACCEPTED and
+      IMPLEMENTED. Production rollout was not authorized or executed.
