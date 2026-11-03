@@ -540,6 +540,31 @@ specifications:
       Phases 1–6 accepted; production deployment/migration remain not
       authorized and were not executed.
 
+  - number: "039"
+    title: >-
+      Governed canonical-organization creation and enrichment during
+      historical campaign import
+    repository: retriva-crm-assistant
+    path: specs/039-governed-campaign-import-organization-creation
+    status: implementation_authorized
+    allocated: "2026-11-01"
+    notes: >-
+      allocated per Constitution v1.2 §43; implementation authorized by
+      owner direction 2026-11-01, formal signatures pending; would
+      supersede Spec 038 §7.3 and
+      decision D-7 only, adding exhaustive MATCH_EXISTING /
+      PROPOSE_CREATE / AMBIGUOUS_REVIEW / INSUFFICIENT_IDENTITY /
+      CONFLICT / DUPLICATE_SOURCE_ROW / REVIEWER_EXCLUDED
+      dispositions, a versioned minimum-evidence creation policy,
+      mandatory review/approval for all creation and enrichment,
+      non-mutating analysis, atomic commit through the canonical
+      identity service, created organizations receive an active
+      LEAD role (not CUSTOMER), field
+      classification/provenance, preserved timestamp/idempotency/
+      receipt/RLS contracts, immutable old batches, and separate
+      permissions; companion ADR-044; all owner decisions D-1…D-14
+      remain PENDING and no implementation is authorized
+
 adrs:
   - number: "001"
     title: Generic session attachment processing
@@ -1074,3 +1099,26 @@ adrs:
       2026-10-23 (Phase 1 authorized; Phases 2–6 not authorized).
       Implementation closed 2026-10-24; ADR-043 is ACCEPTED and
       IMPLEMENTED. Production rollout was not authorized or executed.
+
+  - number: "044"
+    title: >-
+      Governed canonical-organization creation during historical
+      campaign import
+    repository: retriva-crm-assistant
+    path: docs/adr/adr-044-governed-campaign-import-organization-creation.md
+    status: implementation_authorized
+    allocated: "2026-11-01"
+    notes: >-
+      allocated per Constitution v1.2 §43; implementation authorized by
+      owner direction 2026-11-01, formal signatures pending; would amend
+      only the no-creation rule
+      in Spec 038 §7.3/D-7 and ADR-043 Decision 9; records the decision
+      to require strong identity evidence plus explicit review for all
+      creation and enrichment, keep analysis non-mutating, commit
+      atomically through the canonical identity service, assign an
+      active LEAD role (not CUSTOMER), preserve Spec 038 timestamp/
+      idempotency/receipt/lock/RLS contracts, leave old batch
+      ibth_a6d48914781245ce immutable, and require separate
+      analysis/review/creation/enrichment/commit/lineage permissions;
+      companion to Spec 039; owner decisions D-1…D-14 remain PENDING
+      and implementation is not authorized
