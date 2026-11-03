@@ -565,31 +565,35 @@ specifications:
       permissions; companion ADR-044; all owner decisions D-1…D-14
       remain PENDING and no implementation is authorized
 
-  - number: "002"
+  - number: "040"
     title: >-
       Catalog-driven semantic intent router for Retriva chat routing
-      (gateway-local numbering)
     repository: retriva-gateway
-    path: specs/002-catalog-driven-semantic-routing
-    status: proposed
+    path: specs/040-catalog-driven-semantic-routing
+    status: accepted
     allocated: "2026-11-03"
     notes: >-
-      gateway-local allocation continuing the grandfathered gateway-local
-      series recorded at number 001 above (distinct from the project-wide
-      §43 sequence, where 002 is the core Image-injection spec); allocated
-      2026-11-03 before first presentation as PROPOSED per the
-      owner-ratified 2026-11-03 planning session; Phase A is documentation
-      and governance only and ends at Gate A (owner acceptance and
-      resolution of PENDING-1..4) — implementation is not authorized;
-      records seven ratified decisions (catalog-driven routing from typed
-      tool capability cards, deterministic safety layer unchanged and
-      terminal, one small-LLM call per non-command band turn, read-only
-      loop admission via destructive=False, stopgap freeze, per-module
-      card growth contract, off→shadow→active rollout with
-      mode-off+flag-off rollback), the strict JSON v2 contract, contracts
-      SC1–SC5, and eight safety invariants; companion ADR-0003; retracts
-      no existing decision and leaves Spec 001 / ADR-0002 in force;
-      cross-references the 2026-11-03 planning session
+      allocated in the single project-wide specification sequence per
+      Constitution v1.2 §43 (the numbering requirement applies
+      prospectively from v1.2; the grandfather clause covers only
+      historical backfills, so the gateway-local 001/0001/0002 entries
+      keep their original numbers and paths and are not renumbered);
+      verified next free number after Spec 039; Gate A passed 2026-11-03,
+      resolving PENDING-1..4 as D-8..D-11 (family threshold 0.85 with
+      0.90 retained for the Phase D advisory path, hints
+      last_routed_data_plane + last_family, mirrored
+      AGENT_SEMANTIC_ROUTER_* flags with independent rollback and shared
+      Core transport selected by prompt_version, and this renumbering to
+      Spec 040 / ADR 045); authorizes Phase B only; Phases C-E remain
+      gated; records seven ratified decisions (catalog-driven routing
+      from typed tool capability cards, deterministic safety layer
+      unchanged and terminal, one small-LLM call per non-command band
+      turn, read-only loop admission via destructive=False, stopgap
+      freeze, per-module card growth contract, off -> shadow -> active
+      rollout with mode-off+flag-off rollback), the strict JSON v2
+      contract, contracts SC1-SC5, and eight safety invariants; companion
+      ADR-045; retracts no existing decision and leaves Spec 001 /
+      ADR-0002 in force; cross-references the 2026-11-03 planning session
 
 adrs:
   - number: "001"
@@ -1149,25 +1153,26 @@ adrs:
       companion to Spec 039; owner decisions D-1…D-14 remain PENDING
       and implementation is not authorized
 
-  - number: "0003"
+  - number: "045"
     title: Catalog-driven semantic router for Retriva chat routing
     repository: retriva-gateway
-    path: docs/adr/0003-catalog-driven-semantic-routing.md
-    status: proposed
+    path: docs/adr/adr-045-catalog-driven-semantic-routing.md
+    status: accepted
     allocated: "2026-11-03"
     notes: >-
-      gateway-local allocation continuing the grandfathered four-digit
-      gateway-local ADR series (distinct from the project-wide §43
-      sequence, where 003 is the CRM Web Research module boundary);
-      allocated 2026-11-03 before first presentation as PROPOSED per the
-      owner-ratified 2026-11-03 planning session; records the decision to
-      route chat from a catalog of capability cards derived from the
-      ToolRegistry, keep the deterministic safety layer unchanged and
-      terminal, admit router-routed turns to the agent loop with the
-      read-only tool subset only (destructive=False), freeze new
-      deterministic recall vocabularies, require per-module versioned
-      cards with a digest-tested derivation, and roll out
-      off→shadow→active with mode-off+flag-off rollback; ratifies the
-      CAMPAIGN_COUNT stopgap as a grandfathered fast path; companion to
-      Spec 002; PENDING-1..4 owner decisions remain open and no
-      implementation is authorized
+      allocated in the single project-wide ADR sequence per Constitution
+      v1.2 §43 (the numbering requirement applies prospectively from
+      v1.2; the grandfather clause covers only historical backfills, so
+      the gateway-local 0001/0002 entries keep their original numbers
+      and paths and are not renumbered); verified next free number after
+      ADR 044; Gate A passed 2026-11-03 with PENDING-1..4 resolved as
+      D-8..D-11; records the decision to route chat from a catalog of
+      capability cards derived from the ToolRegistry, keep the
+      deterministic safety layer unchanged and terminal, admit
+      router-routed turns to the agent loop with the read-only tool
+      subset only (destructive=False), freeze new deterministic recall
+      vocabularies, require per-module versioned cards with a
+      digest-tested derivation, and roll out off -> shadow -> active with
+      mode-off+flag-off rollback; ratifies the CAMPAIGN_COUNT stopgap as
+      a grandfathered fast path; companion to Spec 040; Phase B is
+      authorized and Phases C-E remain gated
