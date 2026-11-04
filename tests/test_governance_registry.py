@@ -47,6 +47,9 @@ WORKSPACE = HERE.parent.parent
 ALLOWED_STATUSES = {
     "allocated", "proposed", "accepted", "superseded", "rejected",
     "withdrawn",
+    # In active use by the accepted Spec 039 / ADR-044 entries
+    # (owner direction 2026-11-01, formal signatures pending).
+    "implementation_authorized",
 }
 REQUIRED_FIELDS = {"number", "title", "repository", "path", "status",
                    "allocated"}
