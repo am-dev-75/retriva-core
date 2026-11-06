@@ -391,11 +391,46 @@ class SQLiteGraphStore:
                         (system, ext_id, e.tenant_id, e.entity_id),
                     )
 
+    @staticmethod
+    def _existing_entity_ids(conn, entity_ids) -> set:
+        ids = {eid for eid in entity_ids if eid}
+        if not ids:
+            return set()
+        placeholders = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT entity_id FROM graph_entities "
+            f"WHERE entity_id IN ({placeholders})",
+            tuple(ids),
+        ).fetchall()
+        return {row[0] for row in rows}
+
     def upsert_assertions(self, assertions: List[Assertion]) -> None:
         if not assertions:
             return
         with self._write_lock, self.connect() as conn:
+            existing = self._existing_entity_ids(
+                conn,
+                [a.subject_entity_id for a in assertions]
+                + [a.object_entity_id for a in assertions])
             for a in assertions:
+                if a.subject_entity_id not in existing:
+                    logger.warning(
+                        "graph assertion %s skipped: subject entity %s "
+                        "does not exist", a.assertion_id,
+                        a.subject_entity_id)
+                    continue
+                assertion = a
+                if (a.object_entity_id
+                        and a.object_entity_id not in existing):
+                    if a.object_value is not None:
+                        assertion = a.model_copy(
+                            update={"object_entity_id": None})
+                    else:
+                        logger.warning(
+                            "graph assertion %s skipped: object entity %s "
+                            "does not exist", a.assertion_id,
+                            a.object_entity_id)
+                        continue
                 conn.execute(
                     """
                     INSERT INTO graph_assertions (
@@ -429,20 +464,22 @@ class SQLiteGraphStore:
                         metadata_json=excluded.metadata_json
                     """,
                     (
-                        a.assertion_id, a.tenant_id, a.kb_id,
-                        a.subject_entity_id, a.predicate,
-                        a.object_entity_id, a.object_value,
-                        a.assertion_class.value,
-                        json.dumps(a.source_document_ids),
-                        json.dumps(a.source_chunk_ids),
-                        json.dumps(a.source_spans),
-                        a.extraction_confidence,
-                        a.extractor_profile, a.extractor_version,
-                        a.observed_at, a.ingested_at,
-                        a.valid_from, a.valid_to,
-                        a.status.value, a.superseded_by,
-                        json.dumps(a.security_scope),
-                        json.dumps(a.metadata),
+                        assertion.assertion_id, assertion.tenant_id,
+                        assertion.kb_id, assertion.subject_entity_id,
+                        assertion.predicate, assertion.object_entity_id,
+                        assertion.object_value,
+                        assertion.assertion_class.value,
+                        json.dumps(assertion.source_document_ids),
+                        json.dumps(assertion.source_chunk_ids),
+                        json.dumps(assertion.source_spans),
+                        assertion.extraction_confidence,
+                        assertion.extractor_profile,
+                        assertion.extractor_version,
+                        assertion.observed_at, assertion.ingested_at,
+                        assertion.valid_from, assertion.valid_to,
+                        assertion.status.value, assertion.superseded_by,
+                        json.dumps(assertion.security_scope),
+                        json.dumps(assertion.metadata),
                     ),
                 )
 
@@ -450,7 +487,17 @@ class SQLiteGraphStore:
         if not relationships:
             return
         with self._write_lock, self.connect() as conn:
+            existing = self._existing_entity_ids(
+                conn,
+                [r.source_entity_id for r in relationships]
+                + [r.target_entity_id for r in relationships])
             for r in relationships:
+                if (r.source_entity_id not in existing
+                        or r.target_entity_id not in existing):
+                    logger.warning(
+                        "graph relationship %s skipped: endpoint entity "
+                        "does not exist", r.relationship_id)
+                    continue
                 conn.execute(
                     """
                     INSERT INTO graph_relationships (

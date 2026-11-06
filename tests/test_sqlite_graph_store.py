@@ -116,7 +116,8 @@ class TestEntityCRUD:
 class TestAssertionCRUD:
     def test_upsert_and_get(self, store):
         e = Entity(entity_id="ent_1", tenant_id="col1", kb_id="kb1", name="Test")
-        store.upsert_entities([e])
+        e2 = Entity(entity_id="ent_2", tenant_id="col1", kb_id="kb1", name="Other")
+        store.upsert_entities([e, e2])
         a = Assertion(
             assertion_id="ast_1", tenant_id="col1", kb_id="kb1",
             subject_entity_id="ent_1", predicate="retriva:worksFor",
@@ -146,6 +147,89 @@ class TestAssertionCRUD:
         active = store.get_assertions("ent_1", status=AssertionStatus.ACTIVE)
         assert len(active) == 1
         assert active[0].assertion_id == "ast_1"
+
+
+class TestMissingEntityReferences:
+    """2026-11-06 regression: assertions/relationships must never FK-fail.
+
+    Schema reality: ``graph_assertions`` has a FK on subject_entity_id;
+    ``graph_relationships`` has FKs on source/target.  The indexer can
+    receive assertions that reference an entity skipped by validation, so
+    the store must skip or null such references deterministically.
+    """
+
+    def test_apply_mutation_skips_missing_subject(self, store):
+        store.upsert_entities([
+            Entity(entity_id="ent_a", tenant_id="col1", kb_id="kb1", name="A"),
+        ])
+        bad = Assertion(
+            assertion_id="ast_bad", tenant_id="col1", kb_id="kb1",
+            subject_entity_id="ent_missing", predicate="retriva:p",
+            source_document_ids=["doc_1"])
+        good = Assertion(
+            assertion_id="ast_good", tenant_id="col1", kb_id="kb1",
+            subject_entity_id="ent_a", predicate="retriva:p",
+            object_value="value", source_document_ids=["doc_1"])
+        store.apply_mutation(GraphMutationRequest(
+            tenant_id="col1", kb_id="kb1",
+            entities=[], assertions=[bad, good],
+            relationships=[], source_document_id="doc_1"))
+        ids = {a.assertion_id for a in store.get_assertions("ent_a")}
+        assert "ast_good" in ids
+        assert "ast_bad" not in ids
+
+    def test_missing_object_with_value_is_nulled(self, store):
+        store.upsert_entities([
+            Entity(entity_id="ent_a", tenant_id="col1", kb_id="kb1", name="A"),
+        ])
+        a = Assertion(
+            assertion_id="ast_value", tenant_id="col1", kb_id="kb1",
+            subject_entity_id="ent_a", predicate="retriva:p",
+            object_entity_id="ent_missing", object_value="value",
+            source_document_ids=["doc_1"])
+        store.upsert_assertions([a])
+        stored = store.get_assertions("ent_a")
+        assert len(stored) == 1
+        assert stored[0].object_entity_id is None
+        assert stored[0].object_value == "value"
+
+    def test_missing_object_without_value_is_skipped(self, store):
+        store.upsert_entities([
+            Entity(entity_id="ent_a", tenant_id="col1", kb_id="kb1", name="A"),
+        ])
+        a = Assertion(
+            assertion_id="ast_dangling", tenant_id="col1", kb_id="kb1",
+            subject_entity_id="ent_a", predicate="retriva:p",
+            object_entity_id="ent_missing",
+            source_document_ids=["doc_1"])
+        store.upsert_assertions([a])
+        assert store.get_assertions("ent_a") == []
+
+    def test_apply_mutation_skips_missing_relationship_endpoint(self, store):
+        store.upsert_entities([
+            Entity(entity_id="ent_a", tenant_id="col1", kb_id="kb1", name="A"),
+            Entity(entity_id="ent_b", tenant_id="col1", kb_id="kb1", name="B"),
+        ])
+        rels = [
+            Relationship(
+                relationship_id="rel_bad", tenant_id="col1", kb_id="kb1",
+                source_entity_id="ent_a", target_entity_id="ent_missing",
+                predicate="retriva:p"),
+            Relationship(
+                relationship_id="rel_good", tenant_id="col1", kb_id="kb1",
+                source_entity_id="ent_a", target_entity_id="ent_b",
+                predicate="retriva:p"),
+        ]
+        store.apply_mutation(GraphMutationRequest(
+            tenant_id="col1", kb_id="kb1", entities=[],
+            assertions=[], relationships=rels,
+            source_document_id="doc_1"))
+        result = store.get_neighborhood(
+            "ent_a", max_depth=1, max_nodes=10, max_edges=10,
+            security_scope=["kb1"])
+        edges = {r.relationship_id for r in result.relationships}
+        assert "rel_good" in edges
+        assert "rel_bad" not in edges
 
 
 class TestNeighborhood:

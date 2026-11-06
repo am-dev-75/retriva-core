@@ -184,22 +184,52 @@ class GraphIndexer:
             resolved_entities: List[Entity] = []
             temp_to_canonical: Dict[str, str] = {}
             for entity in validated_entities:
+                # Capture the extractor's id BEFORE resolve(): the resolver
+                # rewrites candidate.entity_id to the canonical id, which
+                # would otherwise key this map by the canonical id and leave
+                # every assertion's temp subject id unmapped (the 2026-11-06
+                # FK / skipped-assertion root cause).
+                temp_id = entity.entity_id
                 canonical = self.resolver.resolve(entity)
-                temp_to_canonical[entity.entity_id] = canonical.entity_id
+                temp_to_canonical[temp_id] = canonical.entity_id
                 resolved_entities.append(canonical)
 
-            # Remap assertion subject/object IDs to canonical IDs
+            # Remap assertion subject/object IDs to canonical IDs.
+            # Every stored assertion must reference an entity that was
+            # actually resolved: validation can skip an entity (e.g. an
+            # extension reject) while the extractor still emits assertions
+            # that reference it.  Leaving the unknown temp id in place
+            # produced the 2026-11-06 ``FOREIGN KEY constraint failed``
+            # (graph_assertions.subject_entity_id -> graph_entities).
+            valid_entity_ids = {e.entity_id for e in resolved_entities}
             resolved_assertions: List[Assertion] = []
+            skipped_assertions = 0
             for ast in mutation.assertions:
-                ast.subject_entity_id = temp_to_canonical.get(
+                subject_id = temp_to_canonical.get(
                     ast.subject_entity_id, ast.subject_entity_id
                 )
+                if subject_id not in valid_entity_ids:
+                    skipped_assertions += 1
+                    continue
+                ast.subject_entity_id = subject_id
                 if ast.object_entity_id:
-                    ast.object_entity_id = temp_to_canonical.get(
+                    object_id = temp_to_canonical.get(
                         ast.object_entity_id, ast.object_entity_id
                     )
+                    if object_id not in valid_entity_ids:
+                        # Keep the assertion only when it carries a value
+                        # (object_value) and can be stored without an entity
+                        # reference; otherwise it has no valid target.
+                        if ast.object_value is not None:
+                            ast.object_entity_id = None
+                        else:
+                            skipped_assertions += 1
+                            continue
+                    else:
+                        ast.object_entity_id = object_id
                 # Filter by confidence threshold
                 if ast.extraction_confidence < settings.graph_extraction_confidence_threshold:
+                    skipped_assertions += 1
                     continue
                 resolved_assertions.append(ast)
 
@@ -275,7 +305,8 @@ class GraphIndexer:
                 f"GraphIndexer: indexed doc={doc_id} — "
                 f"{len(resolved_entities)} entities, "
                 f"{len(resolved_assertions)} assertions, "
-                f"{len(relationships)} relationships"
+                f"{len(relationships)} relationships, "
+                f"{skipped_assertions} skipped assertions"
             )
 
             ext_metrics = getattr(self.extractor, "last_metrics", {}) \
@@ -285,6 +316,7 @@ class GraphIndexer:
                 "entities": len(resolved_entities),
                 "assertions": len(resolved_assertions),
                 "relationships": len(relationships),
+                "skipped_assertions": skipped_assertions,
                 "profile": profile_id,
                 "extraction_metrics": {
                     k: v for k, v in ext_metrics.items() if k != "warnings"
