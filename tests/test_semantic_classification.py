@@ -130,6 +130,7 @@ def test_prompt_preserves_untrusted_framing_and_cards():
             "it") in prompt
     assert "get_campaign_company_stats" in prompt
     assert "never routes writes" in prompt.lower()
+    assert "read-only artifact/export production" in prompt.lower()
     assert VALID_REQUEST["message"] in prompt
 
 
