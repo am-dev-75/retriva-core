@@ -62,6 +62,11 @@ from ..base import (
     validate_classification_payload,
 )
 from ..prompt import classification_system_prompt
+from ..semantic import (
+    SemanticClassifierRequest,
+    semantic_system_prompt,
+    validate_semantic_payload,
+)
 
 
 class BedrockIntentClassifier:
@@ -120,14 +125,17 @@ class BedrockIntentClassifier:
 
     # -- invocation -------------------------------------------------------
 
-    def classify(self, request: ClassifierRequest,
-                 cancelled: Optional[object] = None
-                 ) -> IntentClassification:
+    def classify(self, request,
+                 cancelled: Optional[object] = None):
         """One classification with the ratified retry policy (one
         initial attempt plus up to ``max_retries`` retries; every retry
         uses the identical region and model/profile; cancellation stops
         retries)."""
-        system_prompt = classification_system_prompt(request.message)
+        schema_version = getattr(request, "schema_version", "1")
+        if schema_version == "2":
+            system_prompt = semantic_system_prompt(request)
+        else:
+            system_prompt = classification_system_prompt(request.message)
         kwargs = {
             "modelId": self.target.model,
             "system": [{"text": system_prompt}],
@@ -181,7 +189,7 @@ class BedrockIntentClassifier:
                     "classification transport failed")
                 self._maybe_retry(attempt, attempts)
                 continue
-            return self._parse_response(response)
+            return self._parse_response(response, schema_version)
         raise IntentClassifierError(
             ClassifierErrorCode.RETRY_EXHAUSTED,
             "classification attempts exhausted") \
@@ -197,7 +205,8 @@ class BedrockIntentClassifier:
         time.sleep(float(self.target.retry_base_delay)
                    * (2 ** (attempt - 1)))
 
-    def _parse_response(self, response: dict) -> IntentClassification:
+    def _parse_response(self, response: dict,
+                        schema_version: str = "1"):
         """Extract the model text from the Converse response and run
         the strict local C2 validation (native structured output is
         used where supported, but validation never depends on it)."""
@@ -224,4 +233,6 @@ class BedrockIntentClassifier:
                 ClassifierErrorCode.MALFORMED_RESPONSE,
                 "classification provider content was not JSON") \
                 from exc
+        if schema_version == "2":
+            return validate_semantic_payload(payload)
         return validate_classification_payload(payload)

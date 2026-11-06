@@ -80,6 +80,10 @@ from retriva.intent_classification.prompt import (
     PROMPT_ID,
     PROMPT_VERSION,
 )
+from retriva.intent_classification.semantic import (
+    SemanticClassifierRequest,
+    validate_semantic_payload,
+)
 
 router = APIRouter(tags=["intent-classification"])
 
@@ -279,20 +283,38 @@ async def classify_intent(request: Request):
                 payload.get("message"), str):
             # Deterministic truncation to the configured bound.
             payload["message"] = payload["message"][:max_chars]
-        if (isinstance(payload, dict)
-                and payload.get("prompt_version")
-                != settings.intent_classifier_prompt_version):
-            return _typed_error(
-                ClassifierErrorCode.UNSUPPORTED_PROMPT_VERSION,
-                "unsupported classification prompt version",
-                correlation_id)
-        try:
-            classifier_request = ClassifierRequest.model_validate(payload)
-        except Exception:  # noqa: BLE001 — sanitized
-            return _typed_error(
-                ClassifierErrorCode.INVALID_REQUEST,
-                "classification request failed strict validation",
-                correlation_id)
+        schema_version = (payload.get("schema_version")
+                          if isinstance(payload, dict) else None)
+        if schema_version == "2":
+            if payload.get("prompt_version") != "2":
+                return _typed_error(
+                    ClassifierErrorCode.UNSUPPORTED_PROMPT_VERSION,
+                    "unsupported classification prompt version",
+                    correlation_id)
+            try:
+                classifier_request = SemanticClassifierRequest.model_validate(
+                    payload)
+            except Exception:  # noqa: BLE001 — sanitized
+                return _typed_error(
+                    ClassifierErrorCode.INVALID_REQUEST,
+                    "classification request failed strict validation",
+                    correlation_id)
+        else:
+            if (isinstance(payload, dict)
+                    and payload.get("prompt_version")
+                    != settings.intent_classifier_prompt_version):
+                return _typed_error(
+                    ClassifierErrorCode.UNSUPPORTED_PROMPT_VERSION,
+                    "unsupported classification prompt version",
+                    correlation_id)
+            try:
+                classifier_request = ClassifierRequest.model_validate(
+                    payload)
+            except Exception:  # noqa: BLE001 — sanitized
+                return _typed_error(
+                    ClassifierErrorCode.INVALID_REQUEST,
+                    "classification request failed strict validation",
+                    correlation_id)
 
         # --- Classifier availability -------------------------------------
         classifier = get_intent_classifier()
@@ -330,15 +352,20 @@ async def classify_intent(request: Request):
 
         # --- Strict response validation (defense in depth) --------------
         try:
-            record = validate_classification_payload(
-                classification.model_dump())
+            if schema_version == "2":
+                record = validate_semantic_payload(
+                    classification.model_dump())
+            else:
+                record = validate_classification_payload(
+                    classification.model_dump())
         except IntentClassifierError as exc:
             return _typed_error(exc.code, exc.message, correlation_id)
 
         get_logger(__name__).info(
             f"[{correlation_id}] intent_classification ok "
             f"latency={time.monotonic() - started:.2f}s "
-            f"prompt={PROMPT_ID}/v{PROMPT_VERSION}")
+            f"prompt={PROMPT_ID}/v"
+            f"{'2' if schema_version == '2' else PROMPT_VERSION}")
         return JSONResponse(content=record.model_dump())
 
     finally:

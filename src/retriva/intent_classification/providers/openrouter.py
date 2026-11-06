@@ -59,6 +59,13 @@ from ..base import (
     validate_classification_payload,
 )
 from ..prompt import classification_system_prompt
+from ..semantic import (
+    SC2_JSON_SCHEMA,
+    SemanticClassifierRequest,
+    SemanticRouteDecision,
+    semantic_system_prompt,
+    validate_semantic_payload,
+)
 
 
 class OpenRouterIntentClassifier:
@@ -89,13 +96,21 @@ class OpenRouterIntentClassifier:
 
     # -- request construction (immutable target only) ------------------
 
-    def _build_payload(self, request: ClassifierRequest) -> Dict:
+    def _build_payload(self, request) -> Dict:
         """The provider request body: the versioned prompt, the
         untrusted message (embedded by the prompt builder), strict
         structured output against the closed C2 schema, and the
         immutable privacy/routing controls.  No per-request provider,
         model, endpoint, region, or routing-preference field exists."""
-        system_prompt = classification_system_prompt(request.message)
+        schema_version = getattr(request, "schema_version", "1")
+        if schema_version == "2":
+            system_prompt = semantic_system_prompt(request)
+            json_schema = SC2_JSON_SCHEMA
+            schema_name = "retriva_semantic_routing"
+        else:
+            system_prompt = classification_system_prompt(request.message)
+            json_schema = _C2_JSON_SCHEMA
+            schema_name = "retriva_intent_classification"
         return {
             "model": self.target.model,
             "messages": [
@@ -108,9 +123,9 @@ class OpenRouterIntentClassifier:
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "retriva_intent_classification",
+                    "name": schema_name,
                     "strict": True,
-                    "schema": _C2_JSON_SCHEMA,
+                    "schema": json_schema,
                 },
             },
             "provider": {
@@ -150,9 +165,8 @@ class OpenRouterIntentClassifier:
 
     # -- invocation -------------------------------------------------------
 
-    def classify(self, request: ClassifierRequest,
-                 cancelled: Optional[object] = None
-                 ) -> IntentClassification:
+    def classify(self, request,
+                 cancelled: Optional[object] = None):
         """One classification with the ratified retry policy: one
         initial attempt plus up to ``max_retries`` retries (at most
         three attempts); every retry uses the exact same immutable
@@ -219,7 +233,8 @@ class OpenRouterIntentClassifier:
                     raise IntentClassifierError(
                         ClassifierErrorCode.PROVIDER_REJECTED,
                         "classification provider rejected the request")
-                return self._parse_response(response)
+                return self._parse_response(
+                    response, getattr(request, "schema_version", "1"))
         if last_error is not None:
             raise IntentClassifierError(
                 ClassifierErrorCode.RETRY_EXHAUSTED,
@@ -240,8 +255,8 @@ class OpenRouterIntentClassifier:
         time.sleep(float(self.target.retry_base_delay)
                    * (2 ** (attempt - 1)))
 
-    def _parse_response(self, response: httpx.Response
-                        ) -> IntentClassification:
+    def _parse_response(self, response: httpx.Response,
+                        schema_version: str = "1"):
         """Strict local validation regardless of provider-side
         structured output (unknown fields, unknown schema version,
         unknown enums, missing fields, string/NaN/infinity confidence,
@@ -276,6 +291,8 @@ class OpenRouterIntentClassifier:
                 ClassifierErrorCode.MALFORMED_RESPONSE,
                 "classification provider content was not JSON") \
                 from exc
+        if schema_version == "2":
+            return validate_semantic_payload(payload)
         return validate_classification_payload(payload)
 
 
