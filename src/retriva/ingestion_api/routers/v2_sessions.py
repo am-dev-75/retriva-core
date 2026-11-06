@@ -32,6 +32,7 @@ Routes:
 - DELETE /api/v2/sessions/{session_id}/artifacts/{art_id}   (delete)
 """
 
+import json
 from typing import List, Optional
 
 from fastapi import (
@@ -196,6 +197,43 @@ async def delete_attachment(session_id: str, attachment_id: str):
 # ---------------------------------------------------------------------------
 # Artifacts
 # ---------------------------------------------------------------------------
+
+@router.post(
+    "/{session_id}/artifacts",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_artifact(
+    session_id: str,
+    file: UploadFile = File(...),
+    artifact_kind: str = Form("report"),
+    metadata: Optional[str] = Form(None),
+):
+    """Store a generated session artifact (e.g. a campaign export).
+
+    Session-scoped only: the artifact is downloadable from this session
+    and is never written to the knowledge base or canonical CRM state.
+    """
+    content = await file.read()
+    try:
+        meta = json.loads(metadata) if metadata else {}
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="metadata must be a JSON object") from None
+    if not isinstance(meta, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="metadata must be a JSON object")
+    service = SessionArtifactService()
+    record = service.create(
+        session_id=session_id,
+        filename=file.filename or "artifact",
+        content=content,
+        artifact_kind=artifact_kind,
+        metadata=meta,
+    )
+    return _artifact_to_response(record)
+
 
 @router.get("/artifacts")
 async def list_all_artifacts(limit: int = 200):
