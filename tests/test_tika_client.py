@@ -43,6 +43,23 @@ class TestTikaDetectMime:
         assert mime == "application/pdf"
 
     @patch("retriva.ingestion.tika_client.requests.put")
+    def test_detect_uses_tika4_detect_endpoint(self, mock_put, tmp_path):
+        """Tika 4.x serves /detect, not the legacy /detect/stream."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = "text/plain"
+        mock_resp.raise_for_status = MagicMock()
+        mock_put.return_value = mock_resp
+
+        f = tmp_path / "test.txt"
+        f.write_bytes(b"content")
+        client = TikaClient(server_url="http://fake:9998")
+        assert client.detect_mime(str(f)) == "text/plain"
+        url = mock_put.call_args.args[0]
+        assert url == "http://fake:9998/detect"
+        assert "/detect/stream" not in url
+
+    @patch("retriva.ingestion.tika_client.requests.put")
     def test_detect_connection_error(self, mock_put, tmp_path):
         mock_put.side_effect = ConnectionError("refused")
 

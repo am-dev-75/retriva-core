@@ -125,7 +125,12 @@ class TikaClient:
             return False
 
     def detect_mime(self, file_path: str) -> str:
-        """Detect MIME type via ``PUT /detect/stream``.
+        """Detect MIME type via ``PUT /detect``.
+
+        Tika 4.x (``apache/tika:latest-full``) serves ``/detect`` but not
+        the legacy ``/detect/stream`` path; using the latter returned 404
+        and silently degraded detection to ``application/octet-stream``
+        (2026-11-06 smoke ingest).
 
         Args:
             file_path: Local path to the document.
@@ -136,7 +141,7 @@ class TikaClient:
         try:
             with open(file_path, "rb") as f:
                 r = requests.put(
-                    f"{self.server_url}/detect/stream",
+                    f"{self.server_url}/detect",
                     data=f,
                     headers={"Content-Type": "application/octet-stream"},
                     timeout=self._timeout,
