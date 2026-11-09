@@ -50,6 +50,13 @@ def _call():
     )
 
 
+def test_agent_reasoning_effort_defaults_to_low():
+    from retriva.config import Settings
+
+    field = Settings.model_fields["agent_reasoning_effort"]
+    assert field.default == "low"
+
+
 def test_agent_tool_completion_defaults_to_low_reasoning(monkeypatch):
     monkeypatch.setattr(settings, "agent_reasoning_effort", "low")
     monkeypatch.setattr(settings, "chat_reasoning_effort", None)
