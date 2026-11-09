@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # DeepSeek-R1 via OpenRouter).  Values: "low", "medium", "high".
     # None/empty = not sent (model default).
     chat_reasoning_effort: Optional[str] = None
+    # Reasoning effort for agent-loop tool-calling completions.  The agent
+    # path carries the full extension tool catalog and a large trusted-
+    # context prompt; reasoning models can otherwise spend the entire
+    # CHAT_MAX_TOKENS budget on hidden reasoning and return neither a tool
+    # call nor visible content (the Gateway then reports that no tool ran).
+    # "low" keeps tool selection decisive.  None/empty falls back to
+    # chat_reasoning_effort (or the model default when that is unset too).
+    agent_reasoning_effort: Optional[str] = "low"
 
     # System prompt override for the QA answerer.  When set (non-empty), this
     # string is used as the system prompt template INSTEAD of the built-in

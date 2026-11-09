@@ -42,6 +42,24 @@ def _chat_extra_kwargs() -> dict:
     return {}
 
 
+def _agent_extra_kwargs() -> dict:
+    """Build reasoning kwargs for agent-loop tool-calling completions.
+
+    The agent path carries the full tool catalog and a large trusted-context
+    prompt.  With the model default reasoning effort, some reasoning models
+    consume the whole completion budget on hidden reasoning and return no
+    tool call and no visible content — the Gateway can only report that no
+    tool ran.  A dedicated low effort keeps tool selection decisive; an
+    empty setting falls back to the ordinary chat reasoning configuration.
+    """
+    effort = (getattr(settings, "agent_reasoning_effort", None) or "").strip()
+    if not effort:
+        return _chat_extra_kwargs()
+    extra_body = dict(_chat_extra_kwargs().get("extra_body") or {})
+    extra_body["reasoning_effort"] = effort
+    return {"extra_body": extra_body}
+
+
 def _extract_reasoning(message: Any) -> Optional[str]:
     """Extract chain-of-thought text from a reasoning-model response message.
 
@@ -315,7 +333,7 @@ def chat_completion_with_tools(
         "temperature": settings.chat_temperature,
         "top_p": settings.chat_top_p,
         "max_tokens": settings.chat_max_tokens,
-        **_chat_extra_kwargs(),
+        **_agent_extra_kwargs(),
     }
     if tools:
         kwargs["tools"] = tools
